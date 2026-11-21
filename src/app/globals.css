@@ -1,0 +1,228 @@
+@import "tailwindcss";
+
+/* Цвета и шрифты сайта. Tailwind превращает их в классы: bg-cobalt, text-ink, font-display… */
+@theme {
+  --color-cobalt: #2f54eb;
+  --color-cobalt-edge: #1d39c4;
+  --color-cobalt-soft: #e4eaff;
+  --color-paper: #f3f6fd;
+  --color-ink: #14213d;
+  --color-muted: #5b6782;
+  --color-line: #d3dbea;
+  --color-key-edge: #b7c5f7;
+  --color-green: #1f9d55;
+  --color-green-edge: #157a41;
+  --color-green-soft: #e3f6ea;
+  --color-red: #e5484d;
+  --color-red-edge: #b8343a;
+  --color-red-soft: #fdecec;
+  --color-sun: #ffc53d;
+  --color-sun-soft: #fff4d6;
+
+  --font-display: "Unbounded Variable", "Golos Text Variable", system-ui, sans-serif;
+  --font-sans: "Golos Text Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer components {
+  /* Кнопка-клавиша: нижний «бортик» — это тень, при нажатии клавиша опускается */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 3rem;
+    padding: 0.7rem 1.25rem;
+    border-radius: 14px;
+    font-weight: 650;
+    font-size: 1rem;
+    line-height: 1.2;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    transition:
+      transform 70ms ease-out,
+      box-shadow 70ms ease-out,
+      background-color 120ms;
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(4px);
+    box-shadow: 0 0 0 transparent;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--color-cobalt);
+    color: #fff;
+    box-shadow: 0 4px 0 var(--color-cobalt-edge);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #2448dc;
+  }
+  .btn-white {
+    background: #fff;
+    color: var(--color-cobalt);
+    box-shadow: 0 4px 0 var(--color-key-edge);
+  }
+  .btn-soft {
+    background: #fff;
+    color: var(--color-ink);
+    border: 1.5px solid var(--color-line);
+    box-shadow: 0 3px 0 var(--color-line);
+  }
+  .btn-soft:hover:not(:disabled) {
+    border-color: var(--color-key-edge);
+  }
+  .btn-danger {
+    background: #fff;
+    color: var(--color-red);
+    border: 1.5px solid #f4b9bb;
+    box-shadow: 0 3px 0 #f4b9bb;
+  }
+  .btn-green {
+    background: var(--color-green);
+    color: #fff;
+    box-shadow: 0 4px 0 var(--color-green-edge);
+  }
+  .btn-sm {
+    min-height: 2.25rem;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.9rem;
+    border-radius: 10px;
+  }
+
+  .input {
+    width: 100%;
+    min-height: 3rem;
+    padding: 0.7rem 0.9rem;
+    border: 1.5px solid var(--color-line);
+    border-radius: 12px;
+    background: #fff;
+    font-size: 1rem;
+    color: var(--color-ink);
+    transition:
+      border-color 120ms,
+      box-shadow 120ms;
+  }
+  .input::placeholder {
+    color: #94a0b8;
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--color-cobalt);
+    box-shadow: 0 0 0 4px var(--color-cobalt-soft);
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-muted);
+  }
+
+  .panel {
+    background: #fff;
+    border: 1.5px solid var(--color-line);
+    border-radius: 20px;
+  }
+
+  /* Вариант ответа в тесте — тоже клавиша */
+  .option {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.8rem 0.9rem;
+    text-align: left;
+    background: #fff;
+    border: 2px solid var(--color-line);
+    border-radius: 16px;
+    box-shadow: 0 4px 0 var(--color-line);
+    cursor: pointer;
+    transition:
+      transform 70ms ease-out,
+      box-shadow 70ms ease-out,
+      border-color 120ms,
+      background-color 120ms;
+  }
+  .option:active {
+    transform: translateY(4px);
+    box-shadow: 0 0 0 transparent;
+  }
+  .option[aria-pressed="true"] {
+    background: var(--color-cobalt-soft);
+    border-color: var(--color-cobalt);
+    box-shadow: 0 4px 0 var(--color-cobalt-edge);
+  }
+  .option-letter {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 10px;
+    background: #e8edf8;
+    color: var(--color-cobalt);
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+  .option[aria-pressed="true"] .option-letter {
+    background: var(--color-cobalt);
+    color: #fff;
+  }
+
+  /* Большая клавиша с цифрой кода комнаты */
+  .keycap {
+    display: grid;
+    place-items: center;
+    background: #fff;
+    color: var(--color-cobalt);
+    border-radius: 0.28em;
+    box-shadow: 0 0.09em 0 var(--color-key-edge);
+    font-family: var(--font-display);
+    font-weight: 700;
+    line-height: 1;
+  }
+}
+
+:focus-visible {
+  outline: 3px solid #8ea6ff;
+  outline-offset: 3px;
+}
+
+@keyframes key-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+.animate-key-bob {
+  animation: key-bob 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

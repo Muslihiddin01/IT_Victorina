@@ -1,0 +1,66 @@
+import { requireUser } from "@/lib/auth";
+import { getDb } from "@/lib/db";
+import { HttpError, json, readJson, route } from "@/lib/http";
+import { getParticipants, getRoom, pickQuestions } from "@/lib/rooms";
+
+// GET /api/admin/rooms/:id — комната, ученики и их результаты (учитель обновляет каждые 2 секунды)
+export const GET = route(async (req, { id }) => {
+  await requireUser(req, "admin");
+  const db = await getDb();
+  const room = await getRoom(db, id);
+  const participants = await getParticipants(db, room.id);
+  return json({ room, participants, serverNow: Date.now() });
+});
+
+// PATCH /api/admin/rooms/:id — { action: "start" } или { action: "finish" }
+export const PATCH = route(async (req, { id }) => {
+  await requireUser(req, "admin");
+  const { action } = await readJson<{ action?: string }>(req);
+  const db = await getDb();
+  const room = await getRoom(db, id);
+
+  if (action === "start") {
+    await db.tx(async (tx) => {
+      // FOR UPDATE — чтобы двойной клик не запустил тест дважды
+      const [locked] = await tx.query<{ status: string }>(
+        "SELECT status FROM rooms WHERE id = $1::uuid FOR UPDATE",
+        [room.id],
+      );
+      if (locked.status !== "waiting") throw new HttpError(409, "Тест уже запущен");
+
+      const questions = await pickQuestions(tx, room.topicIds, room.questionCount);
+      if (questions.length === 0) throw new HttpError(400, "В выбранных темах нет вопросов");
+      for (const [index, question] of questions.entries()) {
+        await tx.query(
+          `INSERT INTO room_questions (room_id, n, topic_title, text, options, correct)
+           VALUES ($1::uuid, $2::int, $3, $4, $5::jsonb, $6::int)`,
+          [room.id, index + 1, question.topic, question.text, JSON.stringify(question.options), question.correct],
+        );
+      }
+      await tx.query(
+        `UPDATE rooms SET status = 'running', question_count = $2::int, started_at = now(),
+                ends_at = now() + make_interval(mins => duration_min)
+          WHERE id = $1::uuid`,
+        [room.id, questions.length],
+      );
+    });
+    return json({ ok: true });
+  }
+
+  if (action === "finish") {
+    if (room.status === "finished") return json({ ok: true });
+    await db.query("UPDATE rooms SET status = 'finished', finished_at = now() WHERE id = $1::uuid", [room.id]);
+    return json({ ok: true });
+  }
+
+  throw new HttpError(400, "Неизвестное действие");
+});
+
+// DELETE /api/admin/rooms/:id — удалить комнату вместе с результатами
+export const DELETE = route(async (req, { id }) => {
+  await requireUser(req, "admin");
+  const db = await getDb();
+  const room = await getRoom(db, id);
+  await db.query("DELETE FROM rooms WHERE id = $1::uuid", [room.id]);
+  return json({ ok: true });
+});
