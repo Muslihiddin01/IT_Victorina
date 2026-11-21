@@ -26,7 +26,7 @@ async function connect(): Promise<Db> {
   if (url) {
     const { default: postgres } = await import("postgres");
     const sql = postgres(url, {
-      max: 5,
+      max: Number(process.env.DB_POOL_MAX) || 5,
       idle_timeout: 20,
       connect_timeout: 15,
       onnotice: () => {},

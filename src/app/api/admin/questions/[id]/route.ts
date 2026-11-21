@@ -14,7 +14,7 @@ export const PUT = route(async (req, { id }) => {
   const question = cleanQuestion(await readJson<QuestionInput>(req));
   const db = await getDb();
   const rows = await db.query(
-    `UPDATE questions SET topic_id = $1::int, text = $2, options = $3::jsonb, correct = $4::int
+    `UPDATE questions SET topic_id = $1::int, text = $2, options = $3::text::jsonb, correct = $4::int
       WHERE id = $5::uuid RETURNING id`,
     [question.topicId, question.text, JSON.stringify(question.options), question.correct, id],
   );

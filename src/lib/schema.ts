@@ -82,4 +82,10 @@ export const SCHEMA = [
     last_event_at timestamptz,
     UNIQUE (room_id, user_id)
   )`,
+
+  // Починка: ранняя версия сохраняла JSON как строку внутри jsonb. Превращаем обратно в массивы.
+  `UPDATE questions SET options = (options #>> '{}')::jsonb WHERE jsonb_typeof(options) = 'string'`,
+  `UPDATE rooms SET topic_ids = (topic_ids #>> '{}')::jsonb WHERE jsonb_typeof(topic_ids) = 'string'`,
+  `UPDATE room_questions SET options = (options #>> '{}')::jsonb WHERE jsonb_typeof(options) = 'string'`,
+  `UPDATE participants SET answers = (answers #>> '{}')::jsonb WHERE jsonb_typeof(answers) = 'string'`,
 ];

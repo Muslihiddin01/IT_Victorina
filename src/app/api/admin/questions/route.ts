@@ -29,7 +29,7 @@ export const POST = route(async (req) => {
   const topic = await db.query("SELECT 1 FROM topics WHERE id = $1::int", [question.topicId]);
   if (topic.length === 0) throw new HttpError(400, "Такой темы нет");
   const [row] = await db.query<{ id: string }>(
-    "INSERT INTO questions (topic_id, text, options, correct) VALUES ($1::int, $2, $3::jsonb, $4::int) RETURNING id",
+    "INSERT INTO questions (topic_id, text, options, correct) VALUES ($1::int, $2, $3::text::jsonb, $4::int) RETURNING id",
     [question.topicId, question.text, JSON.stringify(question.options), question.correct],
   );
   return json({ id: row.id }, 201);

@@ -523,7 +523,7 @@ export async function seedIfEmpty(db: Db) {
     );
     for (const [text, options] of topic.questions) {
       await db.query(
-        "INSERT INTO questions (topic_id, text, options, correct) VALUES ($1::int, $2, $3::jsonb, 0)",
+        "INSERT INTO questions (topic_id, text, options, correct) VALUES ($1::int, $2, $3::text::jsonb, 0)",
         [row.id, text, JSON.stringify(options)],
       );
     }

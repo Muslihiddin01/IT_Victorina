@@ -42,7 +42,7 @@ export const POST = route(async (req, { id }) => {
     `UPDATE participants SET
         submitted_at = now(),
         finished_at = now() - make_interval(secs => ($2::int / 1000.0)::float8),
-        answers = $3::jsonb,
+        answers = $3::text::jsonb,
         answered = $4::int,
         score = $5::int,
         total = $6::int,

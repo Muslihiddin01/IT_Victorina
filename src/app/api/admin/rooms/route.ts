@@ -35,7 +35,7 @@ export const POST = route(async (req) => {
   const code = await generateCode(db);
   const [row] = await db.query<{ id: string }>(
     `INSERT INTO rooms (code, title, duration_min, question_count, topic_ids)
-     VALUES ($1, $2, $3::int, $4::int, $5::jsonb) RETURNING id`,
+     VALUES ($1, $2, $3::int, $4::int, $5::text::jsonb) RETURNING id`,
     [code, title, durationMin, Math.min(questionCount, available), JSON.stringify(requested)],
   );
   return json({ id: row.id, code }, 201);
