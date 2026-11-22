@@ -123,12 +123,13 @@ type ParticipantRow = {
   online_count: number;
   online_mode: boolean;
   last_event_at: Date | null;
+  answers: Record<string, number> | null;
 };
 
 export async function getParticipants(db: Db, roomId: string): Promise<Participant[]> {
   const rows = await db.query<ParticipantRow>(
     `SELECT id, name, login, joined_at, last_seen_at, loaded_at, submitted_at, finished_at,
-            answered, score, total, leaves, away_ms, online_count, online_mode, last_event_at
+            answered, score, total, leaves, away_ms, online_count, online_mode, last_event_at, answers
        FROM participants WHERE room_id = $1::uuid
       ORDER BY score DESC NULLS LAST, name`,
     [roomId],
@@ -150,6 +151,7 @@ export async function getParticipants(db: Db, roomId: string): Promise<Participa
     onlineCount: row.online_count,
     onlineMode: row.online_mode,
     lastEventAt: ms(row.last_event_at),
+    answers: row.answers,
   }));
 }
 

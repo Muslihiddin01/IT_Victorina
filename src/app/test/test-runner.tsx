@@ -17,6 +17,8 @@ import type { ResultPayload, RoomState, SubmitResult, TestPayload } from "@/lib/
 
 const LETTERS = ["А", "Б", "В", "Г", "Д", "Е"];
 
+type Notice = { kind: "leave" | "online" | "time"; text: string };
+
 // Есть ли сейчас НАСТОЯЩИЙ интернет.
 // Одного navigator.onLine мало: на Windows он говорит «онлайн», если подключён хоть какой-то
 // сетевой адаптер (например, виртуальная сеть WSL). Поэтому раз в 3 секунды стучимся на свой сервер.
@@ -94,7 +96,7 @@ export function TestRunner() {
 
   const [lobby, setLobby] = useState<RoomState | null>(null);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState<{ kind: "leave" | "online"; text: string } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   // Любое изменение состояния сразу сохраняем в localStorage
   const update = useCallback((change: (state: Saved) => Saved) => {
@@ -125,7 +127,7 @@ export function TestRunner() {
 
   // Подсказка вверху экрана на 6 секунд
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const showNotice = useCallback((kind: "leave" | "online", text: string) => {
+  const showNotice = useCallback((kind: Notice["kind"], text: string) => {
     setNotice({ kind, text });
     clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(null), 6000);
@@ -216,9 +218,39 @@ export function TestRunner() {
   const remaining = saved?.test && now > 0 ? saved.test.endsAt - (now + saved.test.offset) : null;
   useEffect(() => {
     if ((phase === "ready" || phase === "running") && remaining !== null && remaining <= 0) {
-      update((s) => ({ ...s, phase: "finishing", finishedAt: Date.now() }));
+      update((s) => ({ ...s, phase: "finishing", finishedAt: Date.now(), timedOut: true }));
     }
   }, [phase, remaining, update]);
+
+  // Пока тест идёт и есть интернет — раз в 10 секунд узнаём, не продлил ли учитель время
+  // и не завершил ли тест. Без интернета это невозможно: тогда узнаем при отправке ответов.
+  useEffect(() => {
+    if ((phase !== "ready" && phase !== "running") || !online || !roomId) return;
+    let stopped = false;
+    const check = async () => {
+      try {
+        const state = await api<RoomState>(`/api/rooms/${roomId}`);
+        if (stopped) return;
+        const { status, endsAt } = state.room;
+        if (status === "finished") {
+          update((s) => ({ ...s, phase: "finishing", finishedAt: Date.now(), timedOut: false }));
+          showNotice("time", "Учитель завершил тест.");
+        } else if (endsAt !== null && endsAt !== savedRef.current?.test?.endsAt) {
+          update((s) =>
+            s.test ? { ...s, test: { ...s.test, endsAt, offset: state.serverNow - Date.now() } } : s,
+          );
+          showNotice("time", "Учитель добавил время.");
+        }
+      } catch {
+        // нет связи — ничего страшного, тест работает и без неё
+      }
+    };
+    const id = setInterval(check, 10_000);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [phase, online, roomId, update, showNotice]);
 
   // 4. Во время теста следим, уходил ли ученик со страницы.
   // Момент ухода сохраняем в localStorage: если телефон выгрузит вкладку в фоне
@@ -277,6 +309,23 @@ export function TestRunner() {
     sendingRef.current = true;
     setSending(true);
     try {
+      // Время вышло само, а учитель мог его продлить, — тогда тест продолжается, ответы на месте.
+      // Ученик снова попадает на экран «выключи интернет», чтобы не решать дальше с ним.
+      if (s.timedOut) {
+        const state = await api<RoomState>(`/api/rooms/${s.roomId}`);
+        const { status, endsAt } = state.room;
+        if (status === "running" && endsAt !== null && endsAt > state.serverNow + 5000 && s.test) {
+          update((prev) => ({
+            ...prev,
+            phase: "ready",
+            timedOut: false,
+            finishedAt: null,
+            test: prev.test ? { ...prev.test, endsAt, offset: state.serverNow - Date.now() } : prev.test,
+          }));
+          setSubmitError("");
+          return;
+        }
+      }
       const result = await api<SubmitResult>(`/api/rooms/${s.roomId}/submit`, {
         method: "POST",
         body: {
@@ -333,8 +382,9 @@ export function TestRunner() {
             update((s) => ({
               ...s,
               phase: "running",
-              startedAt: Date.now(),
-              behaviour: { ...s.behaviour, onlineMode: withInternet },
+              // После продления времени тест продолжается: начало и отметка «с интернетом» не сбрасываются
+              startedAt: s.startedAt ?? Date.now(),
+              behaviour: { ...s.behaviour, onlineMode: s.behaviour.onlineMode || withInternet },
             }))
           }
         />
@@ -348,7 +398,7 @@ export function TestRunner() {
           notice={notice}
           onAnswer={(n, option) => update((s) => ({ ...s, answers: { ...s.answers, [n]: option } }))}
           onGo={(index) => update((s) => ({ ...s, current: index }))}
-          onFinish={() => update((s) => ({ ...s, phase: "finishing", finishedAt: Date.now() }))}
+          onFinish={() => update((s) => ({ ...s, phase: "finishing", finishedAt: Date.now(), timedOut: false }))}
         />
       )}
 
@@ -491,6 +541,7 @@ function Ready({
 }) {
   const [withInternet, setWithInternet] = useState(false);
   const count = saved.test?.questions.length ?? 0;
+  const resumed = saved.startedAt !== null; // вернулся после продления времени
   return (
     <>
       <header className="flex items-center justify-between">
@@ -501,18 +552,29 @@ function Ready({
         <span className="grid size-14 place-items-center rounded-2xl bg-green text-white shadow-[0_4px_0_var(--color-green-edge)]">
           <CheckIcon className="size-8" />
         </span>
-        <h1 className="mt-6 font-display text-[26px] font-bold leading-tight">Тест загружен</h1>
-        <p className="mt-3 text-lg leading-relaxed">
-          {count} {plural(count, ["вопрос", "вопроса", "вопросов"])} уже на твоём устройстве. Теперь{" "}
-          <b>выключи интернет</b>: Wi-Fi и мобильные данные. Тест будет работать без него.
-        </p>
+        {resumed ? (
+          <>
+            <h1 className="mt-6 font-display text-[26px] font-bold leading-tight">Учитель добавил время</h1>
+            <p className="mt-3 text-lg leading-relaxed">
+              Твои ответы сохранены, тест можно продолжить. Снова <b>выключи интернет</b> и нажми «Продолжить».
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="mt-6 font-display text-[26px] font-bold leading-tight">Тест загружен</h1>
+            <p className="mt-3 text-lg leading-relaxed">
+              {count} {plural(count, ["вопрос", "вопроса", "вопросов"])} уже на твоём устройстве. Теперь{" "}
+              <b>выключи интернет</b>: Wi-Fi и мобильные данные. Тест будет работать без него.
+            </p>
+          </>
+        )}
         <p className="mt-3 leading-relaxed text-muted">
           Если во время теста интернет включится или ты уйдёшь со страницы, учитель это увидит. Время уже идёт.
         </p>
 
         <div className="mt-7">
           <button className="btn btn-primary w-full text-lg" disabled={online} onClick={() => onStart(false)}>
-            Начать тест
+            {resumed ? "Продолжить тест" : "Начать тест"}
           </button>
           {online && (
             <p className="mt-3 text-center text-[15px] text-muted">Кнопка заработает, когда интернет выключится</p>
@@ -554,7 +616,7 @@ function Questions({
   saved: Saved;
   online: boolean;
   remaining: number;
-  notice: { kind: "leave" | "online"; text: string } | null;
+  notice: Notice | null;
   onAnswer: (n: number, option: number) => void;
   onGo: (index: number) => void;
   onFinish: () => void;
@@ -594,6 +656,8 @@ function Questions({
         <p role="status" className="mt-3 flex items-start gap-2 rounded-xl bg-sun-soft px-3.5 py-2.5 text-[15px] font-medium text-[#7a4f00]">
           {notice.kind === "online" ? (
             <WifiIcon className="mt-0.5 size-4 flex-none" />
+          ) : notice.kind === "time" ? (
+            <ClockIcon className="mt-0.5 size-4 flex-none" />
           ) : (
             <LeaveIcon className="mt-0.5 size-4 flex-none" />
           )}{" "}

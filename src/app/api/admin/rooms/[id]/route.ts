@@ -12,10 +12,10 @@ export const GET = route(async (req, { id }) => {
   return json({ room, participants, serverNow: Date.now() });
 });
 
-// PATCH /api/admin/rooms/:id — { action: "start" } или { action: "finish" }
+// PATCH /api/admin/rooms/:id — { action: "start" }, { action: "finish" } или { action: "extend", minutes }
 export const PATCH = route(async (req, { id }) => {
   await requireUser(req, "admin");
-  const { action } = await readJson<{ action?: string }>(req);
+  const { action, minutes } = await readJson<{ action?: string; minutes?: number }>(req);
   const db = await getDb();
   const room = await getRoom(db, id);
 
@@ -44,6 +44,19 @@ export const PATCH = route(async (req, { id }) => {
         [room.id, questions.length],
       );
     });
+    return json({ ok: true });
+  }
+
+  // Продлить тест для всех. Если время уже вышло, добавляем минуты от текущего момента.
+  if (action === "extend") {
+    const add = Math.round(Number(minutes));
+    if (!(add >= 1 && add <= 60)) throw new HttpError(400, "Продлить можно на 1–60 минут");
+    const rows = await db.query(
+      `UPDATE rooms SET ends_at = GREATEST(ends_at, now()) + make_interval(mins => $2::int)
+        WHERE id = $1::uuid AND status = 'running' RETURNING id`,
+      [room.id, add],
+    );
+    if (rows.length === 0) throw new HttpError(409, "Продлить можно только идущий тест");
     return json({ ok: true });
   }
 

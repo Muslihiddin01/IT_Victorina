@@ -7,7 +7,9 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CheckIcon, DownloadIcon, LeaveIcon, TrashIcon, UsersIcon, WifiIcon } from "@/components/icons";
 import { ErrorText, Keycaps, Spinner } from "@/components/ui";
 import { api, formatClock, formatSeconds, formatTimer, plural } from "@/lib/client";
-import { deadlineOf, type Participant, type RoomDetail } from "@/lib/types";
+import { deadlineOf, type Participant, type RoomDetail, type RoomQuestion } from "@/lib/types";
+
+const LETTERS = ["А", "Б", "В", "Г", "Д", "Е"];
 
 export function RoomView() {
   const id = useSearchParams().get("id") ?? "";
@@ -44,10 +46,22 @@ export function RoomView() {
     };
   }, [load]);
 
-  async function act(action: "start" | "finish") {
+  // Вопросы игры (с правильными ответами) скачиваем один раз, когда тест начался
+  const [questions, setQuestions] = useState<RoomQuestion[] | null>(null);
+  const started = data !== null && data.room.status !== "waiting";
+  useEffect(() => {
+    if (!started || questions) return;
+    api<{ questions: RoomQuestion[] }>(`/api/admin/rooms/${id}/questions`)
+      .then((result) => setQuestions(result.questions))
+      .catch((e) => setError(e instanceof Error ? e.message : "Не удалось загрузить вопросы"));
+  }, [started, questions, id]);
+
+  const [openId, setOpenId] = useState<string | null>(null); // чьи ответы раскрыты
+
+  async function act(action: "start" | "finish" | "extend", minutes?: number) {
     setBusy(true);
     try {
-      await api(`/api/admin/rooms/${id}`, { method: "PATCH", body: { action } });
+      await api(`/api/admin/rooms/${id}`, { method: "PATCH", body: { action, minutes } });
       setConfirm(null);
       await load();
     } catch (e) {
@@ -130,6 +144,16 @@ export function RoomView() {
             </div>
           )}
           <div className="ml-auto flex flex-wrap gap-3">
+            {confirm !== "finish" && (
+              <>
+                <button className="btn btn-soft" disabled={busy} onClick={() => act("extend", 1)}>
+                  +1 мин
+                </button>
+                <button className="btn btn-soft" disabled={busy} onClick={() => act("extend", 5)}>
+                  +5 мин
+                </button>
+              </>
+            )}
             {confirm === "finish" ? (
               <>
                 <span className="self-center font-semibold">Завершить для всех?</span>
@@ -152,6 +176,10 @@ export function RoomView() {
               «Завершить тест» — тогда ученики увидят разбор ошибок.
             </p>
           )}
+          <p className="w-full text-sm text-muted">
+            Продление сразу видят ученики с интернетом. Ученики без интернета узнают о нём, когда включат интернет:
+            если у них время уже вышло, тест откроется снова, ответы сохранятся.
+          </p>
         </section>
       )}
 
@@ -219,6 +247,9 @@ export function RoomView() {
                     roomStatus={room.status}
                     deadline={deadlineOf(room.endsAt, room.finishedAt)}
                     serverNow={serverNow}
+                    questions={questions}
+                    open={openId === p.id}
+                    onToggle={() => setOpenId(openId === p.id ? null : p.id)}
                   />
                 ))}
               </tbody>
@@ -226,7 +257,114 @@ export function RoomView() {
           </div>
         )}
       </section>
+
+      {questions && submitted.length > 0 && <QuestionStats questions={questions} submitted={submitted} />}
     </div>
+  );
+}
+
+// Сколько учеников ответили на каждый вопрос правильно. Самые трудные — сверху.
+function QuestionStats({ questions, submitted }: { questions: RoomQuestion[]; submitted: Participant[] }) {
+  const stats = questions
+    .map((question) => {
+      const picks = question.options.map(() => 0);
+      let none = 0;
+      for (const p of submitted) {
+        const chosen = p.answers?.[String(question.n)];
+        if (chosen === undefined || chosen === null || !(chosen in picks)) none++;
+        else picks[chosen]++;
+      }
+      const right = picks[question.correct] ?? 0;
+      return { question, picks, none, right, part: right / submitted.length };
+    })
+    .sort((a, b) => a.part - b.part || a.question.n - b.question.n);
+
+  return (
+    <section>
+      <h2 className="font-display text-lg font-bold">Вопросы</h2>
+      <p className="mt-1 text-[15px] text-muted">
+        Сколько учеников ответили правильно (из {submitted.length} {plural(submitted.length, ["сдавшего", "сдавших", "сдавших"])}).
+        Сверху — самые трудные: их стоит разобрать с классом. Нажмите на вопрос, чтобы увидеть, что выбирали.
+      </p>
+      <ol className="mt-4 space-y-2">
+        {stats.map(({ question, picks, none, right, part }) => {
+          const percent = Math.round(part * 100);
+          const tone = part >= 0.7 ? "bg-green" : part >= 0.4 ? "bg-sun" : "bg-red";
+          return (
+            <li key={question.n} className="rounded-2xl border-[1.5px] border-line bg-white">
+              <details className="group">
+                <summary className="flex cursor-pointer list-none items-center gap-4 px-4 py-3">
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-muted">{question.topic}</span>
+                    <span className="block font-semibold leading-snug">{question.text}</span>
+                  </span>
+                  <span className="flex w-36 flex-none items-center gap-2">
+                    <span className="h-2 flex-1 overflow-hidden rounded-full bg-line">
+                      <span className={`block h-full rounded-full ${tone}`} style={{ width: `${percent}%` }} />
+                    </span>
+                    <span className="w-16 text-right font-display text-sm font-bold tabular-nums">
+                      {right}/{submitted.length}
+                    </span>
+                  </span>
+                </summary>
+                <ul className="space-y-1 border-t border-line px-4 py-3">
+                  {question.options.map((option, index) => (
+                    <li
+                      key={index}
+                      className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[15px] ${
+                        index === question.correct ? "bg-green-soft font-semibold text-green-edge" : ""
+                      }`}
+                    >
+                      {index === question.correct ? (
+                        <CheckIcon className="mt-0.5 size-4 flex-none" />
+                      ) : (
+                        <span className="w-4 flex-none text-muted">{LETTERS[index]}</span>
+                      )}
+                      <span className="flex-1">{option}</span>
+                      <span className="tabular-nums text-muted">{picks[index]}</span>
+                    </li>
+                  ))}
+                  {none > 0 && (
+                    <li className="flex gap-2 px-2.5 py-1.5 text-[15px] text-muted">
+                      <span className="w-4 flex-none" />
+                      <span className="flex-1">Без ответа</span>
+                      <span className="tabular-nums">{none}</span>
+                    </li>
+                  )}
+                </ul>
+              </details>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+// Разбор одного ученика: что выбрал в каждом вопросе
+function Answers({ p, questions }: { p: Participant; questions: RoomQuestion[] }) {
+  return (
+    <ol className="grid gap-2 lg:grid-cols-2">
+      {questions.map((question) => {
+        const chosen = p.answers?.[String(question.n)];
+        const answered = chosen !== undefined && chosen !== null;
+        const ok = answered && chosen === question.correct;
+        return (
+          <li
+            key={question.n}
+            className={`rounded-xl border-2 bg-white px-3.5 py-2.5 ${ok ? "border-green-soft" : "border-red-soft"}`}
+          >
+            <p className="font-semibold leading-snug">
+              {question.n}. {question.text}
+            </p>
+            <p className={`mt-1 text-[15px] ${ok ? "text-green-edge" : "text-red-edge"}`}>
+              {answered ? `${ok ? "Верно" : "Ответ"}: ${question.options[chosen] ?? "—"}` : "Нет ответа"}
+            </p>
+            {!ok && <p className="text-[15px] text-green-edge">Правильно: {question.options[question.correct]}</p>}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -244,12 +382,19 @@ function Row({
   roomStatus,
   deadline,
   serverNow,
+  questions,
+  open,
+  onToggle,
 }: {
   p: Participant;
   roomStatus: RoomDetail["room"]["status"];
   deadline: number | null;
   serverNow: number;
+  questions: RoomQuestion[] | null;
+  open: boolean;
+  onToggle: () => void;
 }) {
+  const canOpen = Boolean(p.submittedAt && questions);
   const fresh = p.lastEventAt !== null && serverNow - p.lastEventAt < 15_000 && !p.submittedAt;
   const late = deadline !== null && p.finishedAt !== null && p.finishedAt > deadline + 30_000;
   const connected = serverNow - p.lastSeenAt < 8_000;
@@ -304,28 +449,44 @@ function Row({
   }
 
   return (
-    <tr className={fresh ? "bg-sun-soft" : undefined}>
-      <td className="px-4 py-3">
-        <p className="font-semibold">{p.name}</p>
-        <p className="text-sm text-muted">{p.login}</p>
-      </td>
-      <td className="px-4 py-3">{status}</td>
-      <td className="px-4 py-3">
-        {p.score !== null && p.total ? (
-          <span>
-            <b className="font-display text-lg">{p.score}</b>
-            <span className="text-muted">
-              /{p.total}, {Math.round((p.score / p.total) * 100)}%
+    <>
+      <tr className={fresh ? "bg-sun-soft" : open ? "bg-paper/60" : undefined}>
+        <td className="px-4 py-3">
+          <p className="font-semibold">{p.name}</p>
+          <p className="text-sm text-muted">{p.login}</p>
+        </td>
+        <td className="px-4 py-3">{status}</td>
+        <td className="px-4 py-3">
+          {p.score !== null && p.total ? (
+            <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>
+                <b className="font-display text-lg">{p.score}</b>
+                <span className="text-muted">
+                  /{p.total}, {Math.round((p.score / p.total) * 100)}%
+                </span>
+              </span>
+              {canOpen && (
+                <button className="btn btn-soft btn-sm" aria-expanded={open} onClick={onToggle}>
+                  {open ? "Скрыть" : "Ответы"}
+                </button>
+              )}
             </span>
-          </span>
-        ) : (
-          <span className="text-muted">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        {flags.length ? <div className="flex flex-wrap gap-1.5">{flags}</div> : <span className="text-muted">Нет</span>}
-      </td>
-    </tr>
+          ) : (
+            <span className="text-muted">—</span>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          {flags.length ? <div className="flex flex-wrap gap-1.5">{flags}</div> : <span className="text-muted">Нет</span>}
+        </td>
+      </tr>
+      {open && canOpen && (
+        <tr className="bg-paper/60">
+          <td colSpan={4} className="px-4 pb-4 pt-1">
+            <Answers p={p} questions={questions!} />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 

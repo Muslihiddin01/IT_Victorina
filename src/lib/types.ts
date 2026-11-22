@@ -77,6 +77,16 @@ export type Participant = Behaviour & {
   score: number | null;
   total: number | null;
   lastEventAt: number | null; // последнее «живое» нарушение
+  answers: Record<string, number> | null; // номер вопроса → выбранный вариант (после сдачи)
+};
+
+// Вопрос комнаты для учителя — вместе с правильным ответом
+export type RoomQuestion = {
+  n: number;
+  topic: string;
+  text: string;
+  options: string[];
+  correct: number;
 };
 
 export type RoomDetail = {
