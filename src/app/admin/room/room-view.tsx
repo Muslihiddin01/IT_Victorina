@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { CheckIcon, DownloadIcon, LeaveIcon, TrashIcon, UsersIcon, WifiIcon } from "@/components/icons";
+import { CheckIcon, DownloadIcon, LeaveIcon, PlusIcon, TrashIcon, UsersIcon, WifiIcon } from "@/components/icons";
+import { QrCode } from "@/components/qr-code";
 import { ErrorText, Keycaps, Spinner } from "@/components/ui";
 import { api, formatClock, formatSeconds, formatTimer, plural } from "@/lib/client";
 import { deadlineOf, type Participant, type RoomDetail, type RoomQuestion } from "@/lib/types";
@@ -13,6 +14,11 @@ const LETTERS = ["А", "Б", "В", "Г", "Д", "Е"];
 
 export function RoomView() {
   const id = useSearchParams().get("id") ?? "";
+  // key: при переходе в другую комнату (например, «Такая же комната») всё состояние начинается заново
+  return <RoomScreen key={id} id={id} />;
+}
+
+function RoomScreen({ id }: { id: string }) {
   const router = useRouter();
   const [data, setData] = useState<RoomDetail | null>(null);
   const [offset, setOffset] = useState(0);
@@ -97,6 +103,27 @@ export function RoomView() {
       )
     : null;
   const host = typeof window !== "undefined" ? window.location.host : "";
+  const joinUrl = typeof window !== "undefined" ? `${window.location.origin}/join?code=${room.code}` : "";
+
+  // Такая же комната: те же темы, время и число вопросов, но новые вопросы и новый код
+  async function duplicate() {
+    setBusy(true);
+    try {
+      const copy = await api<{ id: string }>("/api/admin/rooms", {
+        method: "POST",
+        body: {
+          title: room.title,
+          durationMin: room.durationMin,
+          questionCount: room.questionCount,
+          topicIds: room.topicIds,
+        },
+      });
+      router.push(`/admin/room?id=${copy.id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка");
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -112,10 +139,21 @@ export function RoomView() {
 
       {room.status === "waiting" && (
         <section className="overflow-hidden rounded-[28px] bg-cobalt p-6 text-white sm:p-10">
-          <p className="text-lg text-white/80">Код комнаты</p>
-          <Keycaps value={room.code} className="mt-4 text-[56px] sm:text-[88px]" />
+          <div className="flex flex-wrap items-center justify-between gap-8">
+            <div>
+              <p className="text-lg text-white/80">Код комнаты</p>
+              <Keycaps value={room.code} className="mt-4 text-[56px] sm:text-[88px]" />
+            </div>
+            {joinUrl && (
+              <div className="text-center">
+                <QrCode text={joinUrl} label={`QR-код для входа в комнату ${room.code}`} className="size-44 sm:size-52" />
+                <p className="mt-2 text-[15px] text-white/80">Наведите камеру телефона</p>
+              </div>
+            )}
+          </div>
           <p className="mt-8 max-w-2xl text-lg leading-relaxed text-white/90">
-            Ученикам: откройте <b className="text-white">{host}</b>, войдите под своим логином и введите этот код.
+            Ученикам: откройте <b className="text-white">{host}</b>, войдите под своим логином и введите этот код — или
+            отсканируйте QR-код.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <button className="btn btn-white text-lg" disabled={busy} onClick={() => act("start")}>
@@ -204,6 +242,11 @@ export function RoomView() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-lg font-bold">Ученики</h2>
           <div className="flex flex-wrap gap-2">
+            {room.status !== "waiting" && (
+              <button className="btn btn-soft btn-sm" disabled={busy} onClick={duplicate}>
+                <PlusIcon className="size-4" /> Такая же комната
+              </button>
+            )}
             <a className="btn btn-soft btn-sm" href={`/api/admin/rooms/${room.id}/export`} download>
               <DownloadIcon className="size-4" /> Скачать результаты (Excel)
             </a>
@@ -331,6 +374,9 @@ function QuestionStats({ questions, submitted }: { questions: RoomQuestion[]; su
                       <span className="tabular-nums">{none}</span>
                     </li>
                   )}
+                  {question.explanation && (
+                    <li className="px-2.5 pt-1.5 text-sm leading-relaxed text-muted">Пояснение: {question.explanation}</li>
+                  )}
                 </ul>
               </details>
             </li>
@@ -361,6 +407,7 @@ function Answers({ p, questions }: { p: Participant; questions: RoomQuestion[] }
               {answered ? `${ok ? "Верно" : "Ответ"}: ${question.options[chosen] ?? "—"}` : "Нет ответа"}
             </p>
             {!ok && <p className="text-[15px] text-green-edge">Правильно: {question.options[question.correct]}</p>}
+            {question.explanation && <p className="mt-1 text-sm leading-relaxed text-muted">{question.explanation}</p>}
           </li>
         );
       })}

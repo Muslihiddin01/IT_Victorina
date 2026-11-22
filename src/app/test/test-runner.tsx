@@ -866,6 +866,9 @@ function Result({ saved, online, onLeave }: { saved: Saved; online: boolean; onL
                     {item.chosen === null ? "Нет ответа" : `Твой ответ: ${item.options[item.chosen]}`}
                   </p>
                   {!ok && <p className="text-[15px] text-green-edge">Правильно: {item.options[item.correct]}</p>}
+                  {item.explanation && (
+                    <p className="mt-2 rounded-lg bg-paper px-3 py-2 text-[15px] leading-relaxed">{item.explanation}</p>
+                  )}
                 </li>
               );
             })}

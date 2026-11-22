@@ -14,7 +14,7 @@ export const GET = route(async (req) => {
        FROM topics t ORDER BY t.position, t.id`,
   );
   const questions = await db.query<Question>(
-    `SELECT q.id, q.topic_id AS "topicId", q.text, q.options, q.correct
+    `SELECT q.id, q.topic_id AS "topicId", q.text, q.options, q.correct, q.explanation
        FROM questions q JOIN topics t ON t.id = q.topic_id
       ORDER BY t.position, q.created_at`,
   );
@@ -29,8 +29,9 @@ export const POST = route(async (req) => {
   const topic = await db.query("SELECT 1 FROM topics WHERE id = $1::int", [question.topicId]);
   if (topic.length === 0) throw new HttpError(400, "Такой темы нет");
   const [row] = await db.query<{ id: string }>(
-    "INSERT INTO questions (topic_id, text, options, correct) VALUES ($1::int, $2, $3::text::jsonb, $4::int) RETURNING id",
-    [question.topicId, question.text, JSON.stringify(question.options), question.correct],
+    `INSERT INTO questions (topic_id, text, options, correct, explanation)
+     VALUES ($1::int, $2, $3::text::jsonb, $4::int, $5) RETURNING id`,
+    [question.topicId, question.text, JSON.stringify(question.options), question.correct, question.explanation],
   );
   return json({ id: row.id }, 201);
 });

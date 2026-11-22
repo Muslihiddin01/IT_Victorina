@@ -4,11 +4,13 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { ErrorText, Spinner } from "@/components/ui";
 import { api } from "@/lib/client";
-import { unfinishedTest } from "@/lib/test-storage";
+import { hasPendingCode, unfinishedTest } from "@/lib/test-storage";
 import type { Me } from "@/lib/types";
 
 function goHome(user: Me) {
   if (user.role === "admin") window.location.assign("/admin");
+  // Пришёл по QR-коду — сразу в комнату
+  else if (hasPendingCode()) window.location.assign("/join");
   else window.location.assign(unfinishedTest(user.id) ? "/test" : "/join");
 }
 

@@ -25,12 +25,20 @@ export async function generateCode(db: Db): Promise<string> {
   throw new HttpError(500, "Не удалось подобрать код комнаты, попробуйте ещё раз");
 }
 
-type QuestionRow = { id: string; topic_id: number; topic_title: string; text: string; options: string[]; correct: number };
+type QuestionRow = {
+  id: string;
+  topic_id: number;
+  topic_title: string;
+  text: string;
+  options: string[];
+  correct: number;
+  explanation: string;
+};
 
 // Берём вопросы из выбранных тем по кругу, чтобы темы перемешались поровну
 export async function pickQuestions(db: Db, topicIds: number[], count: number) {
   const rows = await db.query<QuestionRow>(
-    `SELECT q.id, q.topic_id, t.title AS topic_title, q.text, q.options, q.correct
+    `SELECT q.id, q.topic_id, t.title AS topic_title, q.text, q.options, q.correct, q.explanation
        FROM questions q JOIN topics t ON t.id = q.topic_id`,
   );
   const allowed = new Set(topicIds);
@@ -56,6 +64,7 @@ export async function pickQuestions(db: Db, topicIds: number[], count: number) {
       text: question.text,
       options: order.map((index) => question.options[index]),
       correct: order.indexOf(question.correct),
+      explanation: question.explanation ?? "",
     };
   });
 }

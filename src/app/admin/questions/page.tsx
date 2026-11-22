@@ -5,11 +5,12 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { CheckIcon, PlusIcon, TrashIcon } from "@/components/icons";
 import { ErrorText, Spinner } from "@/components/ui";
 import { api, plural } from "@/lib/client";
+import { parseQuestions } from "@/lib/question-text";
 import type { Question, Topic } from "@/lib/types";
 
 const LETTERS = ["А", "Б", "В", "Г", "Д", "Е"];
 
-type Draft = { id?: string; topicId: number; text: string; options: string[]; correct: number };
+type Draft = { id?: string; topicId: number; text: string; options: string[]; correct: number; explanation: string };
 
 export default function QuestionsPage() {
   const [topics, setTopics] = useState<Topic[]>([]);
@@ -37,8 +38,18 @@ export default function QuestionsPage() {
   const topicTitle = (id: number) => topics.find((t) => t.id === id)?.title ?? "";
   const selectedTopic = topics.find((t) => t.id === topicId) ?? null;
 
+  const [bulk, setBulk] = useState(false);
+  const [notice, setNotice] = useState("");
+
   function newDraft() {
-    setDraft({ topicId: topicId ?? topics.at(-1)?.id ?? 0, text: "", options: ["", "", "", ""], correct: 0 });
+    setBulk(false);
+    setDraft({
+      topicId: topicId ?? topics.at(-1)?.id ?? 0,
+      text: "",
+      options: ["", "", "", ""],
+      correct: 0,
+      explanation: "",
+    });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -83,11 +94,41 @@ export default function QuestionsPage() {
             {topicId === null ? "Все вопросы" : topicTitle(topicId)}
             <span className="text-muted"> {visible.length}</span>
           </h2>
-          <button className="btn btn-primary btn-sm" onClick={newDraft} disabled={topics.length === 0}>
-            <PlusIcon className="size-4" /> Добавить вопрос
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="btn btn-soft btn-sm"
+              onClick={() => {
+                setDraft(null);
+                setBulk(true);
+                setNotice("");
+              }}
+            >
+              Добавить списком
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={newDraft} disabled={topics.length === 0}>
+              <PlusIcon className="size-4" /> Добавить вопрос
+            </button>
+          </div>
         </div>
         <ErrorText>{error}</ErrorText>
+        {notice && (
+          <p role="status" className="rounded-xl bg-green-soft px-3.5 py-2.5 text-[15px] font-medium text-green-edge">
+            {notice}
+          </p>
+        )}
+
+        {bulk && (
+          <BulkImport
+            topics={topics}
+            defaultTopicId={topicId ?? topics.at(-1)?.id ?? null}
+            onCancel={() => setBulk(false)}
+            onImported={async (message) => {
+              setBulk(false);
+              setNotice(message);
+              await load();
+            }}
+          />
+        )}
 
         {draft && (
           <Editor
@@ -116,7 +157,8 @@ export default function QuestionsPage() {
                 question={question}
                 topic={topicId === null ? topicTitle(question.topicId) : null}
                 onEdit={() => {
-                  setDraft({ ...question, options: [...question.options] });
+                  setBulk(false);
+                  setDraft({ ...question, options: [...question.options], explanation: question.explanation ?? "" });
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
                 onDeleted={load}
@@ -296,7 +338,13 @@ function Editor({
     setBusy(true);
     setError("");
     try {
-      const body = { topicId: draft.topicId, text: draft.text, options: draft.options, correct: draft.correct };
+      const body = {
+        topicId: draft.topicId,
+        text: draft.text,
+        options: draft.options,
+        correct: draft.correct,
+        explanation: draft.explanation,
+      };
       if (draft.id) await api(`/api/admin/questions/${draft.id}`, { method: "PUT", body });
       else await api("/api/admin/questions", { method: "POST", body });
       await onSaved();
@@ -377,6 +425,18 @@ function Editor({
           </button>
         )}
       </fieldset>
+      <div>
+        <label className="label" htmlFor="q-explanation">
+          Пояснение (необязательно): ученик увидит его в разборе ошибок
+        </label>
+        <textarea
+          id="q-explanation"
+          className="input min-h-20 resize-y leading-relaxed"
+          placeholder="Почему правильный ответ именно такой"
+          value={draft.explanation}
+          onChange={(e) => setDraft({ ...draft, explanation: e.target.value })}
+        />
+      </div>
       <ErrorText>{error}</ErrorText>
       <div className="flex gap-3">
         <button className="btn btn-primary" disabled={busy}>
@@ -461,6 +521,11 @@ function QuestionCard({
           </li>
         ))}
       </ul>
+      {question.explanation && (
+        <p className="mt-2 rounded-lg bg-paper px-3 py-2 text-sm leading-relaxed text-muted">
+          Пояснение: {question.explanation}
+        </p>
+      )}
       <p className="sr-only">
         {question.options.length} {plural(question.options.length, ["вариант", "варианта", "вариантов"])}
       </p>
@@ -470,5 +535,135 @@ function QuestionCard({
         </div>
       )}
     </li>
+  );
+}
+
+const BULK_EXAMPLE = `# Урок 8. HTML
+? Какой тег делает ссылку?
++ <a>
+- <p>
+- <img>
+- <div>
+! Тег a — от английского anchor, «якорь».
+
+? Какой тег вставляет картинку?
++ <img>
+- <a>
+- <h1>
+- <ul>`;
+
+// Сразу много вопросов: вставить текст → проверить → добавить одним нажатием
+function BulkImport({
+  topics,
+  defaultTopicId,
+  onCancel,
+  onImported,
+}: {
+  topics: Topic[];
+  defaultTopicId: number | null;
+  onCancel: () => void;
+  onImported: (message: string) => Promise<void>;
+}) {
+  const [text, setText] = useState("");
+  const [topicId, setTopicId] = useState<number | null>(defaultTopicId);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const parsed = parseQuestions(text);
+  const needsTopic = parsed.questions.some((q) => !q.topic);
+  const newTopics = [
+    ...new Set(
+      parsed.questions
+        .map((q) => q.topic)
+        .filter((title): title is string => Boolean(title))
+        .filter((title) => !topics.some((t) => t.title.trim().toLowerCase() === title.toLowerCase())),
+    ),
+  ];
+  const ready = parsed.questions.length > 0 && parsed.errors.length === 0 && (!needsTopic || topicId !== null);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!ready) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ added: number; createdTopics: string[] }>("/api/admin/questions/bulk", {
+        method: "POST",
+        body: { topicId, questions: parsed.questions },
+      });
+      const topicsNote = result.createdTopics.length ? `, новые темы: ${result.createdTopics.join(", ")}` : "";
+      await onImported(
+        `Добавлено ${result.added} ${plural(result.added, ["вопрос", "вопроса", "вопросов"])}${topicsNote}.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="panel space-y-4 border-cobalt p-5 shadow-[0_4px_0_var(--color-cobalt-soft)]">
+      <h3 className="font-display text-lg font-bold">Добавить вопросы списком</h3>
+      <div className="rounded-xl bg-paper px-4 py-3 text-[15px] leading-relaxed">
+        <p>
+          Каждый вопрос — отдельным блоком, между вопросами пустая строка. <b>+</b> — правильный ответ, <b>-</b> —
+          неправильные, <b>!</b> — пояснение (можно не писать). Строка <b># Название</b> задаёт тему для вопросов
+          ниже; если такой темы нет, она создастся.
+        </p>
+        <button type="button" className="mt-2 font-semibold text-cobalt" onClick={() => setText(BULK_EXAMPLE)}>
+          Вставить пример
+        </button>
+      </div>
+      <textarea
+        aria-label="Вопросы списком"
+        className="input min-h-72 resize-y font-mono text-[15px] leading-relaxed"
+        placeholder={BULK_EXAMPLE}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        spellCheck={false}
+      />
+      {needsTopic && (
+        <div>
+          <label className="label" htmlFor="bulk-topic">
+            Тема для вопросов без строки «#»
+          </label>
+          <select
+            id="bulk-topic"
+            className="input"
+            value={topicId ?? ""}
+            onChange={(e) => setTopicId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">Выберите тему</option>
+            {topics.map((topic) => (
+              <option key={topic.id} value={topic.id}>
+                {topic.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {text.trim() && (
+        <p className="text-[15px]">
+          Найдено: <b>{parsed.questions.length}</b> {plural(parsed.questions.length, ["вопрос", "вопроса", "вопросов"])}
+          {newTopics.length > 0 && <>, новые темы: {newTopics.join(", ")}</>}
+        </p>
+      )}
+      {parsed.errors.length > 0 && (
+        <ul role="alert" className="space-y-1 rounded-xl bg-red-soft px-3.5 py-2.5 text-[15px] font-medium text-red-edge">
+          {parsed.errors.slice(0, 10).map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+          {parsed.errors.length > 10 && <li>…и ещё {parsed.errors.length - 10}</li>}
+        </ul>
+      )}
+      <ErrorText>{error}</ErrorText>
+      <div className="flex gap-3">
+        <button className="btn btn-primary" disabled={busy || !ready}>
+          {busy ? <Spinner /> : null} Добавить {parsed.questions.length || ""}
+        </button>
+        <button type="button" className="btn btn-soft" onClick={onCancel}>
+          Отмена
+        </button>
+      </div>
+    </form>
   );
 }

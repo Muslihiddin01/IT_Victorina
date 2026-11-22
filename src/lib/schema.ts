@@ -83,6 +83,16 @@ export const SCHEMA = [
     UNIQUE (room_id, user_id)
   )`,
 
+  // Пояснение «почему этот ответ правильный» — ученик видит его в разборе ошибок
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS explanation text NOT NULL DEFAULT ''`,
+  `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS explanation text NOT NULL DEFAULT ''`,
+
+  // Разовые правки данных (например, обновление первых вопросов). Каждая выполняется один раз.
+  `CREATE TABLE IF NOT EXISTS migrations (
+    name text PRIMARY KEY,
+    applied_at timestamptz NOT NULL DEFAULT now()
+  )`,
+
   // Починка: ранняя версия сохраняла JSON как строку внутри jsonb. Превращаем обратно в массивы.
   `UPDATE questions SET options = (options #>> '{}')::jsonb WHERE jsonb_typeof(options) = 'string'`,
   `UPDATE rooms SET topic_ids = (topic_ids #>> '{}')::jsonb WHERE jsonb_typeof(topic_ids) = 'string'`,

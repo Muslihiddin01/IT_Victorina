@@ -14,9 +14,9 @@ export const PUT = route(async (req, { id }) => {
   const question = cleanQuestion(await readJson<QuestionInput>(req));
   const db = await getDb();
   const rows = await db.query(
-    `UPDATE questions SET topic_id = $1::int, text = $2, options = $3::text::jsonb, correct = $4::int
+    `UPDATE questions SET topic_id = $1::int, text = $2, options = $3::text::jsonb, correct = $4::int, explanation = $6
       WHERE id = $5::uuid RETURNING id`,
-    [question.topicId, question.text, JSON.stringify(question.options), question.correct, id],
+    [question.topicId, question.text, JSON.stringify(question.options), question.correct, id, question.explanation],
   );
   if (rows.length === 0) throw new HttpError(404, "Вопрос не найден");
   return json({ ok: true });

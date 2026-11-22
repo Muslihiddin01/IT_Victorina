@@ -2,7 +2,7 @@ import "server-only";
 
 import { HttpError } from "./errors";
 import { SCHEMA } from "./schema";
-import { seedIfEmpty, syncAdmin } from "./seed";
+import { applyMigrations, seedIfEmpty, syncAdmin } from "./seed";
 
 // Единый интерфейс базы данных.
 // На Vercel — настоящий Postgres (Neon) по адресу из DATABASE_URL.
@@ -77,6 +77,7 @@ export function ensureReady(): Promise<void> {
         await tx.query("SELECT pg_advisory_xact_lock(727274)");
         for (const statement of SCHEMA) await tx.query(statement);
         await seedIfEmpty(tx);
+        await applyMigrations(tx);
       });
       await syncAdmin(db);
     })().catch((error) => {

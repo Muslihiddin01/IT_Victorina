@@ -32,9 +32,12 @@ export const PATCH = route(async (req, { id }) => {
       if (questions.length === 0) throw new HttpError(400, "В выбранных темах нет вопросов");
       for (const [index, question] of questions.entries()) {
         await tx.query(
-          `INSERT INTO room_questions (room_id, n, topic_title, text, options, correct)
-           VALUES ($1::uuid, $2::int, $3, $4, $5::text::jsonb, $6::int)`,
-          [room.id, index + 1, question.topic, question.text, JSON.stringify(question.options), question.correct],
+          `INSERT INTO room_questions (room_id, n, topic_title, text, options, correct, explanation)
+           VALUES ($1::uuid, $2::int, $3, $4, $5::text::jsonb, $6::int, $7)`,
+          [
+            room.id, index + 1, question.topic, question.text, JSON.stringify(question.options), question.correct,
+            question.explanation,
+          ],
         );
       }
       await tx.query(

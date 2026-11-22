@@ -22,6 +22,7 @@ export type Question = {
   text: string;
   options: string[];
   correct: number; // номер правильного варианта (с нуля)
+  explanation: string; // почему ответ правильный (может быть пустым)
 };
 
 export type Student = {
@@ -87,6 +88,7 @@ export type RoomQuestion = {
   text: string;
   options: string[];
   correct: number;
+  explanation: string;
 };
 
 export type RoomDetail = {
@@ -137,6 +139,7 @@ export type ReviewItem = {
   options: string[];
   correct: number;
   chosen: number | null;
+  explanation: string;
 };
 
 export type ResultPayload = {

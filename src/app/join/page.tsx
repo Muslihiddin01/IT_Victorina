@@ -4,8 +4,26 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { ErrorText, FullScreenLoader, Logo, Spinner } from "@/components/ui";
 import { api } from "@/lib/client";
-import { clearCurrent, setCurrent, unfinishedTest, type Current } from "@/lib/test-storage";
+import {
+  clearCurrent,
+  savePendingCode,
+  setCurrent,
+  takePendingCode,
+  unfinishedTest,
+  type Current,
+} from "@/lib/test-storage";
 import type { Me } from "@/lib/types";
+
+// Войти в комнату и открыть тест
+async function enterRoom(user: Me, code: string) {
+  const room = await api<{ roomId: string; title: string }>("/api/rooms/join", {
+    method: "POST",
+    body: { code },
+  });
+  setCurrent({ roomId: room.roomId, userId: user.id, name: user.name, title: room.title });
+  // Полная загрузка страницы — чтобы браузер сохранил страницу теста для работы без интернета
+  window.location.assign("/test");
+}
 
 export default function JoinPage() {
   const [me, setMe] = useState<Me | null>(null);
@@ -15,6 +33,13 @@ export default function JoinPage() {
   const [unfinished, setUnfinished] = useState<Current | null>(null);
 
   useEffect(() => {
+    // Пришли по QR-коду: /join?code=1234. Запоминаем код — он понадобится и после входа в аккаунт.
+    const fromLink = new URLSearchParams(window.location.search).get("code");
+    if (fromLink) {
+      savePendingCode(fromLink);
+      window.history.replaceState(null, "", "/join");
+    }
+
     api<{ user: Me | null }>("/api/me")
       .then(({ user }) => {
         if (!user) window.location.replace("/login");
@@ -22,6 +47,15 @@ export default function JoinPage() {
         else {
           setMe(user);
           setUnfinished(unfinishedTest(user.id));
+          const pending = takePendingCode();
+          if (pending) {
+            setCode(pending);
+            setBusy(true);
+            enterRoom(user, pending).catch((e) => {
+              setError(e instanceof Error ? e.message : "Ошибка");
+              setBusy(false);
+            });
+          }
         }
       })
       .catch(() => setError("Нет связи с сервером. Проверьте интернет."));
@@ -33,13 +67,7 @@ export default function JoinPage() {
     setBusy(true);
     setError("");
     try {
-      const room = await api<{ roomId: string; title: string }>("/api/rooms/join", {
-        method: "POST",
-        body: { code },
-      });
-      setCurrent({ roomId: room.roomId, userId: me.id, name: me.name, title: room.title });
-      // Полная загрузка страницы — чтобы браузер сохранил страницу теста для работы без интернета
-      window.location.assign("/test");
+      await enterRoom(me, code);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
       setBusy(false);

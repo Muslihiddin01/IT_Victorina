@@ -140,6 +140,36 @@ export function unfinishedTest(userId: string): Current | null {
   return null;
 }
 
+// Код комнаты из QR-кода (/join?code=1234). Если ученик ещё не вошёл в аккаунт,
+// код ждёт здесь, пока он войдёт. sessionStorage живёт, пока открыта вкладка.
+const PENDING_KEY = "quiz:pendingCode";
+
+export function savePendingCode(raw: string) {
+  const code = raw.replace(/\D/g, "").slice(0, 4);
+  if (code.length !== 4) return;
+  try {
+    sessionStorage.setItem(PENDING_KEY, code);
+  } catch {}
+}
+
+export function hasPendingCode() {
+  try {
+    return Boolean(sessionStorage.getItem(PENDING_KEY));
+  } catch {
+    return false;
+  }
+}
+
+export function takePendingCode(): string | null {
+  try {
+    const code = sessionStorage.getItem(PENDING_KEY);
+    sessionStorage.removeItem(PENDING_KEY);
+    return code;
+  } catch {
+    return null;
+  }
+}
+
 export function shuffled(length: number) {
   const items = Array.from({ length }, (_, index) => index);
   for (let i = items.length - 1; i > 0; i--) {
