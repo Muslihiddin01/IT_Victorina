@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CheckIcon, DownloadIcon, LeaveIcon, TrashIcon, UsersIcon, WifiIcon } from "@/components/icons";
 import { ErrorText, Keycaps, Spinner } from "@/components/ui";
 import { api, formatClock, formatSeconds, formatTimer, plural } from "@/lib/client";
-import type { Participant, RoomDetail } from "@/lib/types";
+import { deadlineOf, type Participant, type RoomDetail } from "@/lib/types";
 
 export function RoomView() {
   const id = useSearchParams().get("id") ?? "";
@@ -24,6 +24,8 @@ export function RoomView() {
       const detail = await api<RoomDetail>(`/api/admin/rooms/${id}`);
       setData(detail);
       setOffset(detail.serverNow - Date.now());
+      // Без этого первые полсекунды таймер показывал огромное число, а строки мигали жёлтым
+      setNow(Date.now());
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
@@ -121,10 +123,12 @@ export function RoomView() {
               {remaining > 0 ? formatTimer(remaining) : "0:00"}
             </p>
           </div>
-          <div>
-            <p className="text-muted">Код для опоздавших</p>
-            <Keycaps value={room.code} className="mt-1 text-[22px]" />
-          </div>
+          {remaining > 0 && (
+            <div>
+              <p className="text-muted">Код для опоздавших</p>
+              <Keycaps value={room.code} className="mt-1 text-[22px]" />
+            </div>
+          )}
           <div className="ml-auto flex flex-wrap gap-3">
             {confirm === "finish" ? (
               <>
@@ -148,6 +152,16 @@ export function RoomView() {
               «Завершить тест» — тогда ученики увидят разбор ошибок.
             </p>
           )}
+        </section>
+      )}
+
+      {room.status === "finished" && (
+        <section className="rounded-[28px] bg-white p-6 shadow-[0_4px_0_var(--color-line)]">
+          <p className="font-display text-lg font-bold">Тест завершён в {formatClock(room.finishedAt)}</p>
+          <p className="mt-1 leading-relaxed text-muted">
+            Ученики уже видят разбор ошибок. Кто решал без интернета, ещё может отправить ответы: они появятся в
+            таблице с отметкой «позже времени», если ученик закончил решать после завершения.
+          </p>
         </section>
       )}
 
@@ -199,7 +213,13 @@ export function RoomView() {
               </thead>
               <tbody className="divide-y divide-line">
                 {participants.map((p) => (
-                  <Row key={p.id} p={p} roomStatus={room.status} endsAt={room.endsAt} serverNow={serverNow} />
+                  <Row
+                    key={p.id}
+                    p={p}
+                    roomStatus={room.status}
+                    deadline={deadlineOf(room.endsAt, room.finishedAt)}
+                    serverNow={serverNow}
+                  />
                 ))}
               </tbody>
             </table>
@@ -222,16 +242,16 @@ function Stat({ label, value }: { label: string; value: number | string }) {
 function Row({
   p,
   roomStatus,
-  endsAt,
+  deadline,
   serverNow,
 }: {
   p: Participant;
   roomStatus: RoomDetail["room"]["status"];
-  endsAt: number | null;
+  deadline: number | null;
   serverNow: number;
 }) {
   const fresh = p.lastEventAt !== null && serverNow - p.lastEventAt < 15_000 && !p.submittedAt;
-  const late = endsAt !== null && p.finishedAt !== null && p.finishedAt > endsAt + 30_000;
+  const late = deadline !== null && p.finishedAt !== null && p.finishedAt > deadline + 30_000;
   const connected = serverNow - p.lastSeenAt < 8_000;
 
   let status: ReactNode;

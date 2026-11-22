@@ -49,6 +49,13 @@ export type Room = {
   submitted: number;
 };
 
+// Когда тест закончился на самом деле: вышло время или учитель завершил его раньше.
+// Кто закончил решать позже (с запасом 30 секунд) — «позже времени»: разбор уже мог быть открыт.
+export function deadlineOf(endsAt: number | null, finishedAt: number | null): number | null {
+  if (endsAt === null) return null;
+  return finishedAt !== null ? Math.min(endsAt, finishedAt) : endsAt;
+}
+
 // Что ученик делал во время теста (собирается в браузере)
 export type Behaviour = {
   leaves: number; // сколько раз уходил со страницы

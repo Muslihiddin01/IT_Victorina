@@ -9,6 +9,8 @@ export const GET = route(async (req, { id }) => {
   if (room.status === "waiting") throw new HttpError(409, "Тест ещё не начался");
   if (room.status === "finished") throw new HttpError(409, "Тест уже завершён");
   if (participant.submitted_at) throw new HttpError(409, "Ты уже отправил ответы");
+  // Иначе тест скачался бы и сразу закончился с нулём баллов
+  if (room.endsAt !== null && room.endsAt <= Date.now()) throw new HttpError(409, "Время теста уже вышло");
 
   const questions = await db.query<TestQuestion>(
     `SELECT n, topic_title AS topic, text, options

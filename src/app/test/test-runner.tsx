@@ -171,10 +171,12 @@ export function TestRunner() {
         if (stopped) return;
         setLobby(state);
         setError("");
-        const { status } = state.room;
+        const { status, endsAt } = state.room;
+        const timeIsUp = status === "running" && endsAt !== null && endsAt <= state.serverNow;
         if (state.me.submitted) {
           update((s) => ({ ...s, phase: "submitted", result: { score: state.me.score ?? 0, total: state.me.total ?? 0 } }));
-        } else if (status === "finished") {
+        } else if (status === "finished" || timeIsUp) {
+          // Тест закончился раньше, чем ученик успел его скачать
           update((s) => ({ ...s, phase: "closed" }));
         } else if (status === "running") {
           // Тест начался — скачиваем все вопросы сразу
@@ -218,29 +220,41 @@ export function TestRunner() {
     }
   }, [phase, remaining, update]);
 
-  // 4. Во время теста следим: уходил ли ученик со страницы и включал ли интернет
+  // 4. Во время теста следим, уходил ли ученик со страницы.
+  // Момент ухода сохраняем в localStorage: если телефон выгрузит вкладку в фоне
+  // или ученик перезагрузит страницу, уход всё равно засчитается.
   useEffect(() => {
     if (phase !== "running") return;
-    let awaySince: number | null = null;
 
-    const check = () => {
-      const away = document.visibilityState === "hidden" || !document.hasFocus();
-      if (away && awaySince === null) {
-        awaySince = Date.now();
-      } else if (!away && awaySince !== null) {
-        const duration = Date.now() - awaySince;
-        awaySince = null;
-        if (duration >= 1500) {
-          update((s) => ({
-            ...s,
-            behaviour: { ...s.behaviour, leaves: s.behaviour.leaves + 1, awayMs: s.behaviour.awayMs + duration },
-          }));
-          showNotice("leave", "Ты уходил со страницы теста — учитель это увидит.");
-          report();
-        }
+    // Ученик вернулся (или тест закончился, пока его не было) — засчитываем уход
+    const comeBack = (silent: boolean) => {
+      const since = savedRef.current?.awaySince;
+      if (since == null) return;
+      const duration = Math.max(0, Date.now() - since);
+      const counted = duration >= 1500;
+      update((s) => ({
+        ...s,
+        awaySince: null,
+        behaviour: counted
+          ? { ...s.behaviour, leaves: s.behaviour.leaves + 1, awayMs: s.behaviour.awayMs + duration }
+          : s.behaviour,
+      }));
+      if (counted && !silent) {
+        showNotice("leave", "Ты уходил со страницы теста — учитель это увидит.");
+        report();
       }
     };
 
+    const check = () => {
+      const away = document.visibilityState === "hidden" || !document.hasFocus();
+      if (away) {
+        if (savedRef.current?.awaySince == null) update((s) => ({ ...s, awaySince: Date.now() }));
+      } else {
+        comeBack(false);
+      }
+    };
+
+    check(); // страница могла открыться заново после ухода
     window.addEventListener("blur", check);
     window.addEventListener("focus", check);
     document.addEventListener("visibilitychange", check);
@@ -248,15 +262,19 @@ export function TestRunner() {
       window.removeEventListener("blur", check);
       window.removeEventListener("focus", check);
       document.removeEventListener("visibilitychange", check);
+      comeBack(true); // время вышло, пока ученик был на другой странице
     };
   }, [phase, update, showNotice, report]);
 
   // 5. Тест закончен — отправляем ответы, как только появится интернет
   const [submitError, setSubmitError] = useState("");
+  const [needLogin, setNeedLogin] = useState(false);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const submit = useCallback(async () => {
     const s = savedRef.current;
-    if (!s || s.phase !== "finishing") return;
+    if (!s || s.phase !== "finishing" || sendingRef.current) return; // не отправляем дважды одновременно
+    sendingRef.current = true;
     setSending(true);
     try {
       const result = await api<SubmitResult>(`/api/rooms/${s.roomId}/submit`, {
@@ -269,13 +287,16 @@ export function TestRunner() {
       });
       update((state) => ({ ...state, phase: "submitted", result }));
       setSubmitError("");
+      setNeedLogin(false);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        setSubmitError("Нужно войти заново. Ответы сохранены на этом устройстве — после входа открой тест снова.");
+        setNeedLogin(true);
+        setSubmitError("Нужно войти заново. Ответы сохранены на этом устройстве — после входа тест откроется сам.");
       } else {
         setSubmitError(e instanceof Error ? e.message : "Не получилось отправить");
       }
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }, [update]);
@@ -332,7 +353,14 @@ export function TestRunner() {
       )}
 
       {saved.phase === "finishing" && (
-        <Finishing saved={saved} online={online} sending={sending} error={submitError} onSend={submit} />
+        <Finishing
+          saved={saved}
+          online={online}
+          sending={sending}
+          error={submitError}
+          needLogin={needLogin}
+          onSend={submit}
+        />
       )}
 
       {saved.phase === "submitted" && <Result saved={saved} online={online} onLeave={leave} />}
@@ -340,7 +368,7 @@ export function TestRunner() {
       {saved.phase === "closed" && (
         <Centered>
           <h1 className="font-display text-2xl font-bold">Тест уже завершён</h1>
-          <p className="mt-3 text-lg text-muted">Учитель закончил этот тест раньше, чем ты успел его скачать.</p>
+          <p className="mt-3 text-lg text-muted">Этот тест закончился раньше, чем ты успел его скачать.</p>
           <button className="btn btn-primary mt-8 w-full" onClick={leave}>
             Ввести другой код
           </button>
@@ -377,12 +405,13 @@ function Timer({ remaining }: { remaining: number }) {
   const urgent = remaining < 60_000;
   return (
     <span
+      role="timer"
       className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-display text-[15px] font-bold tabular-nums ${
         urgent ? "bg-red text-white" : "bg-white text-ink shadow-[0_2px_0_var(--color-line)]"
       }`}
-      aria-label="Осталось времени"
     >
       <ClockIcon className="size-4" />
+      <span className="sr-only">Осталось</span>
       {formatTimer(remaining)}
     </span>
   );
@@ -531,6 +560,7 @@ function Questions({
   onFinish: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const confirmRef = useRef<HTMLDivElement>(null);
   const questions = saved.test!.questions;
   const total = questions.length;
   const index = Math.min(saved.current, total - 1);
@@ -538,6 +568,16 @@ function Questions({
   const optionOrder = saved.optionOrder[question.n] ?? question.options.map((_, i) => i);
   const answeredCount = Object.keys(saved.answers).length;
   const chosen = saved.answers[question.n];
+
+  // Новый вопрос — показываем его с начала (на телефоне кнопка «Далее» внизу экрана)
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [index]);
+
+  // Окно «Точно завершить?» стоит внизу — прокручиваем к нему, иначе на телефоне его не видно
+  useEffect(() => {
+    if (confirming) confirmRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [confirming]);
 
   return (
     <>
@@ -627,7 +667,7 @@ function Questions({
             Завершить тест
           </button>
         ) : (
-          <div className="panel mt-6 p-4">
+          <div ref={confirmRef} className="panel mt-6 p-4">
             <p className="text-[17px] font-semibold">
               {answeredCount < total
                 ? `Ты ответил на ${answeredCount} из ${total}. Точно завершить?`
@@ -654,12 +694,14 @@ function Finishing({
   online,
   sending,
   error,
+  needLogin,
   onSend,
 }: {
   saved: Saved;
   online: boolean;
   sending: boolean;
   error: string;
+  needLogin: boolean;
   onSend: () => void;
 }) {
   const answered = Object.keys(saved.answers).length;
@@ -673,10 +715,16 @@ function Finishing({
       <div className="mt-6">
         <OnlineChip online={online} />
       </div>
-      <button className="btn btn-primary mt-8 w-full text-lg" disabled={!online || sending} onClick={onSend}>
-        {sending ? <Spinner /> : null}
-        {sending ? "Отправляем…" : "Отправить ответы"}
-      </button>
+      {needLogin && online ? (
+        <a href="/login" className="btn btn-primary mt-8 w-full text-lg">
+          Войти заново
+        </a>
+      ) : (
+        <button className="btn btn-primary mt-8 w-full text-lg" disabled={!online || sending} onClick={onSend}>
+          {sending ? <Spinner /> : null}
+          {sending ? "Отправляем…" : "Отправить ответы"}
+        </button>
+      )}
       <div className="mt-4">
         <ErrorText>{online ? error : ""}</ErrorText>
       </div>
@@ -697,28 +745,27 @@ function verdict(part: number) {
 
 function Result({ saved, online, onLeave }: { saved: Saved; online: boolean; onLeave: () => void }) {
   const [result, setResult] = useState<ResultPayload | null>(null);
-  const [loading, setLoading] = useState(false);
   const score = saved.result?.score ?? 0;
   const total = saved.result?.total ?? 0;
+  const hasReview = Boolean(result?.review);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setResult(await api<ResultPayload>(`/api/rooms/${saved.roomId}/result`));
-    } catch {
-      // без интернета разбор просто не покажем
-    } finally {
-      setLoading(false);
-    }
-  }, [saved.roomId]);
-
-  // Как только есть интернет — узнаём, открыт ли уже разбор ошибок
+  // Пока есть интернет, каждые 5 секунд узнаём, открыл ли учитель разбор ошибок
   useEffect(() => {
-    if (!online) return;
-    api<ResultPayload>(`/api/rooms/${saved.roomId}/result`)
-      .then(setResult)
-      .catch(() => {});
-  }, [online, saved.roomId]);
+    if (!online || hasReview) return;
+    let stopped = false;
+    const load = () =>
+      api<ResultPayload>(`/api/rooms/${saved.roomId}/result`)
+        .then((data) => {
+          if (!stopped) setResult(data);
+        })
+        .catch(() => {}); // без интернета разбор просто не покажем
+    load();
+    const id = setInterval(load, 5000);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [online, hasReview, saved.roomId]);
 
   return (
     <div className="py-6">
@@ -762,11 +809,10 @@ function Result({ saved, online, onLeave }: { saved: Saved; online: boolean; onL
         ) : (
           <div className="mt-3">
             <p className="leading-relaxed text-muted">
-              Разбор появится, когда учитель завершит тест для всех: так никто не сможет подсказать ответы остальным.
+              Разбор появится здесь сам, когда учитель завершит тест для всех: так никто не сможет подсказать ответы
+              остальным.
             </p>
-            <button className="btn btn-soft mt-4" disabled={!online || loading} onClick={load}>
-              {loading ? <Spinner /> : null} Проверить разбор
-            </button>
+            {!online && <p className="mt-2 leading-relaxed text-muted">Включи интернет, чтобы его увидеть.</p>}
           </div>
         )}
       </section>

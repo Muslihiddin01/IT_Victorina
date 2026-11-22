@@ -19,13 +19,20 @@ export type Saved = {
   answers: Record<number, number>; // номер вопроса → номер выбранного варианта (исходный)
   current: number;
   behaviour: Behaviour;
+  // Когда ученик ушёл со страницы. Хранится здесь, а не в памяти: если телефон
+  // закроет вкладку в фоне, после возвращения уход всё равно засчитается.
+  awaySince?: number | null;
   startedAt: number | null;
   finishedAt: number | null;
   result: { score: number; total: number } | null;
 };
 
 const CURRENT_KEY = "quiz:current";
-const key = (roomId: string, userId: string) => `quiz:v1:${roomId}:${userId}`;
+const PREFIX = "quiz:v1:";
+const key = (roomId: string, userId: string) => `${PREFIX}${roomId}:${userId}`;
+
+// В этих фазах на устройстве лежат ответы, которые ещё не ушли учителю
+const UNSENT: Phase[] = ["ready", "running", "finishing"];
 
 function read<T>(storageKey: string): T | null {
   try {
@@ -44,18 +51,44 @@ function write(storageKey: string, value: unknown) {
   }
 }
 
+function remove(storageKey: string) {
+  try {
+    localStorage.removeItem(storageKey);
+  } catch {}
+}
+
+function savedKeys(): string[] {
+  const keys: string[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(PREFIX)) keys.push(k);
+    }
+  } catch {}
+  return keys;
+}
+
+// Старые тесты удаляем, иначе за год память браузера (около 5 МБ) переполнится
+// и новый тест перестанет сохраняться. Тесты с неотправленными ответами не трогаем.
+function prune(keep: string) {
+  for (const k of savedKeys()) {
+    if (k === keep) continue;
+    const saved = read<Saved>(k);
+    if (!saved || !UNSENT.includes(saved.phase)) remove(k);
+  }
+}
+
 export function getCurrent(): Current | null {
   return read<Current>(CURRENT_KEY);
 }
 
 export function setCurrent(current: Current) {
   write(CURRENT_KEY, current);
+  prune(key(current.roomId, current.userId));
 }
 
 export function clearCurrent() {
-  try {
-    localStorage.removeItem(CURRENT_KEY);
-  } catch {}
+  remove(CURRENT_KEY);
 }
 
 export function loadSaved(current: Current): Saved {
@@ -71,6 +104,7 @@ export function loadSaved(current: Current): Saved {
     answers: {},
     current: 0,
     behaviour: { leaves: 0, awayMs: 0, onlineCount: 0, onlineMode: false },
+    awaySince: null,
     startedAt: null,
     finishedAt: null,
     result: null,
@@ -84,10 +118,23 @@ export function persist(saved: Saved) {
 // Есть ли незаконченный тест у этого ученика (чтобы показать «Вернуться к тесту»)
 export function unfinishedTest(userId: string): Current | null {
   const current = getCurrent();
-  if (!current || current.userId !== userId) return null;
-  const saved = read<Saved>(key(current.roomId, current.userId));
-  if (saved && (saved.phase === "submitted" || saved.phase === "closed")) return null;
-  return current;
+  if (current?.userId === userId) {
+    const saved = read<Saved>(key(current.roomId, userId));
+    if (!saved || (saved.phase !== "submitted" && saved.phase !== "closed")) return current;
+  }
+
+  // Указатель потерялся (ученик выходил из аккаунта или на этом устройстве входил
+  // другой ученик) — ищем тест, ответы которого ещё не отправлены
+  for (const k of savedKeys()) {
+    if (!k.endsWith(`:${userId}`)) continue;
+    const saved = read<Saved>(k);
+    if (saved && UNSENT.includes(saved.phase)) {
+      const found: Current = { roomId: saved.roomId, userId, name: saved.name, title: saved.title };
+      write(CURRENT_KEY, found);
+      return found;
+    }
+  }
+  return null;
 }
 
 export function shuffled(length: number) {

@@ -541,8 +541,8 @@ export async function syncAdmin(db: Db) {
   }
   const name = process.env.ADMIN_NAME?.trim() || process.env.ADMIN_LOGIN!.trim();
 
-  const [existing] = await db.query<{ id: string; password_hash: string }>(
-    "SELECT id, password_hash FROM users WHERE login = $1",
+  const [existing] = await db.query<{ id: string; name: string; role: string; password_hash: string }>(
+    "SELECT id, name, role, password_hash FROM users WHERE login = $1",
     [login],
   );
   if (!existing) {
@@ -552,10 +552,16 @@ export async function syncAdmin(db: Db) {
     );
     return;
   }
-  if (!(await verifyPassword(password, existing.password_hash))) {
-    await db.query("UPDATE users SET password_hash = $1, role = 'admin' WHERE id = $2::uuid", [
-      await hashPassword(password),
-      existing.id,
-    ]);
-  }
+
+  const samePassword = await verifyPassword(password, existing.password_hash);
+  if (samePassword && existing.role === "admin" && existing.name === name) return;
+
+  // Обновляем имя (ADMIN_NAME), роль и пароль — всё берётся из переменных окружения
+  await db.query("UPDATE users SET name = $1, role = 'admin', password_hash = $2 WHERE id = $3::uuid", [
+    name,
+    samePassword ? existing.password_hash : await hashPassword(password),
+    existing.id,
+  ]);
+  // Пароль поменяли (например, старый кто-то узнал) — старые входы больше не действуют
+  if (!samePassword) await db.query("DELETE FROM sessions WHERE user_id = $1::uuid", [existing.id]);
 }

@@ -23,6 +23,8 @@ export function normalizeLogin(login: string) {
 export async function startSession(res: NextResponse, userId: string) {
   const db = await getDb();
   const token = randomBytes(32).toString("base64url");
+  // Заодно убираем просроченные сессии, чтобы таблица не росла бесконечно
+  await db.query("DELETE FROM sessions WHERE expires_at < now()");
   await db.query(
     `INSERT INTO sessions (token_hash, user_id, expires_at)
      VALUES ($1, $2::uuid, now() + make_interval(days => $3::int))`,

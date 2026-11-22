@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { route } from "@/lib/http";
 import { getParticipants, getRoom } from "@/lib/rooms";
+import { deadlineOf } from "@/lib/types";
 
 const TZ = process.env.TIMEZONE || "Asia/Dushanbe";
 
@@ -11,8 +12,10 @@ function time(value: number | null) {
 }
 
 function cell(value: unknown) {
-  const text = String(value ?? "");
-  return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  let text = String(value ?? "");
+  // Текст, который начинается с «=», «+», «-» или «@», Excel выполнил бы как формулу
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 // GET /api/admin/rooms/:id/export — результаты в CSV (открывается в Excel)
@@ -26,8 +29,9 @@ export const GET = route(async (req, { id }) => {
     "Имя", "Логин", "Баллы", "Из", "Процент", "Отвечено", "Закончил", "Отправил",
     "Опоздал", "Уходил со страницы (раз)", "Вне страницы (сек)", "Включал интернет (раз)", "Не выключал интернет",
   ];
+  const deadline = deadlineOf(room.endsAt, room.finishedAt);
   const lines = participants.map((p) => {
-    const late = room.endsAt && p.finishedAt ? p.finishedAt > room.endsAt + 30_000 : false;
+    const late = deadline !== null && p.finishedAt !== null && p.finishedAt > deadline + 30_000;
     return [
       p.name, p.login, p.score ?? "", p.total ?? "",
       p.score !== null && p.total ? Math.round((p.score / p.total) * 100) + "%" : "",

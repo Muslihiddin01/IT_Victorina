@@ -38,10 +38,11 @@ export const POST = route(async (req, { id }) => {
   const b = cleanBehaviour(body.behaviour);
   const agoMs = Math.max(0, Math.min(6 * 3600_000, Math.round(Number(body.finishedAgoMs) || 0)));
 
+  // finished_at не может быть раньше, чем ученик скачал тест (браузер мог прислать что угодно)
   await db.query(
     `UPDATE participants SET
         submitted_at = now(),
-        finished_at = now() - make_interval(secs => ($2::int / 1000.0)::float8),
+        finished_at = GREATEST(now() - make_interval(secs => ($2::int / 1000.0)::float8), loaded_at),
         answers = $3::text::jsonb,
         answered = $4::int,
         score = $5::int,

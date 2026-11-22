@@ -35,6 +35,7 @@ export default function QuestionsPage() {
 
   const visible = (questions ?? []).filter((q) => topicId === null || q.topicId === topicId);
   const topicTitle = (id: number) => topics.find((t) => t.id === id)?.title ?? "";
+  const selectedTopic = topics.find((t) => t.id === topicId) ?? null;
 
   function newDraft() {
     setDraft({ topicId: topicId ?? topics.at(-1)?.id ?? 0, text: "", options: ["", "", "", ""], correct: 0 });
@@ -57,21 +58,23 @@ export default function QuestionsPage() {
             />
           ))}
         </nav>
-        <NewTopic
-          onCreated={async (id) => {
-            await load();
-            setTopicId(id);
-          }}
-        />
-        {topicId !== null && topics.find((t) => t.id === topicId)?.questionCount === 0 && (
-          <DeleteTopic
-            id={topicId}
+        {selectedTopic && (
+          <TopicTools
+            key={selectedTopic.id}
+            topic={selectedTopic}
+            onRenamed={load}
             onDeleted={async () => {
               setTopicId(null);
               await load();
             }}
           />
         )}
+        <NewTopic
+          onCreated={async (id) => {
+            await load();
+            setTopicId(id);
+          }}
+        />
       </aside>
 
       <section className="min-w-0 space-y-4">
@@ -88,6 +91,8 @@ export default function QuestionsPage() {
 
         {draft && (
           <Editor
+            // Иначе при нажатии «Изменить» у другого вопроса в форме оставался прошлый вопрос
+            key={draft.id ?? "new"}
             draft={draft}
             topics={topics}
             onCancel={() => setDraft(null)}
@@ -176,17 +181,89 @@ function NewTopic({ onCreated }: { onCreated: (id: number) => Promise<void> }) {
   );
 }
 
-function DeleteTopic({ id, onDeleted }: { id: number; onDeleted: () => Promise<void> }) {
+// Переименовать выбранную тему или удалить её, если в ней нет вопросов
+function TopicTools({
+  topic,
+  onRenamed,
+  onDeleted,
+}: {
+  topic: Topic;
+  onRenamed: () => Promise<void>;
+  onDeleted: () => Promise<void>;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [title, setTitle] = useState(topic.title);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function run(action: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    try {
+      await action();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function rename(event: FormEvent) {
+    event.preventDefault();
+    run(async () => {
+      await api(`/api/admin/topics/${topic.id}`, { method: "PATCH", body: { title } });
+      await onRenamed();
+      setRenaming(false);
+    });
+  }
+
   return (
-    <button
-      className="btn btn-danger btn-sm"
-      onClick={async () => {
-        await api(`/api/admin/topics/${id}`, { method: "DELETE" }).catch(() => {});
-        await onDeleted();
-      }}
-    >
-      <TrashIcon className="size-4" /> Удалить пустую тему
-    </button>
+    <div className="space-y-2 border-t border-line pt-4">
+      {renaming ? (
+        <form onSubmit={rename} className="space-y-2">
+          <label className="label" htmlFor="topic-title">
+            Название темы
+          </label>
+          <input id="topic-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <div className="flex gap-2">
+            <button className="btn btn-primary btn-sm" disabled={busy || !title.trim()}>
+              Сохранить
+            </button>
+            <button
+              type="button"
+              className="btn btn-soft btn-sm"
+              onClick={() => {
+                setRenaming(false);
+                setTitle(topic.title);
+              }}
+            >
+              Отмена
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button className="btn btn-soft btn-sm" onClick={() => setRenaming(true)}>
+            Переименовать тему
+          </button>
+          {topic.questionCount === 0 && (
+            <button
+              className="btn btn-danger btn-sm"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await api(`/api/admin/topics/${topic.id}`, { method: "DELETE" });
+                  await onDeleted();
+                })
+              }
+            >
+              <TrashIcon className="size-4" /> Удалить пустую тему
+            </button>
+          )}
+        </div>
+      )}
+      <ErrorText>{error}</ErrorText>
+    </div>
   );
 }
 
@@ -327,6 +404,21 @@ function QuestionCard({
   onDeleted: () => Promise<void>;
 }) {
   const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function remove() {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/admin/questions/${question.id}`, { method: "DELETE" });
+      await onDeleted();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось удалить вопрос");
+      setBusy(false);
+    }
+  }
+
   return (
     <li className="rounded-2xl border-[1.5px] border-line bg-white p-4">
       <div className="flex flex-wrap items-start gap-3">
@@ -341,13 +433,7 @@ function QuestionCard({
             <button className="btn btn-soft btn-sm" onClick={() => setConfirm(false)}>
               Отмена
             </button>
-            <button
-              className="btn btn-danger btn-sm"
-              onClick={async () => {
-                await api(`/api/admin/questions/${question.id}`, { method: "DELETE" }).catch(() => {});
-                await onDeleted();
-              }}
-            >
+            <button className="btn btn-danger btn-sm" disabled={busy} onClick={remove}>
               Удалить
             </button>
           </div>
@@ -378,6 +464,11 @@ function QuestionCard({
       <p className="sr-only">
         {question.options.length} {plural(question.options.length, ["вариант", "варианта", "вариантов"])}
       </p>
+      {error && (
+        <div className="mt-3">
+          <ErrorText>{error}</ErrorText>
+        </div>
+      )}
     </li>
   );
 }

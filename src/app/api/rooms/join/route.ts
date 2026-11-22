@@ -10,11 +10,18 @@ export const POST = route(async (req) => {
   if (clean.length !== 4) throw new HttpError(400, "Код комнаты — 4 цифры");
 
   const db = await getDb();
-  const [room] = await db.query<{ id: string; title: string }>(
-    "SELECT id, title FROM rooms WHERE code = $1 AND status <> 'finished' ORDER BY created_at DESC LIMIT 1",
-    [clean],
+  const [room] = await db.query<{ id: string; title: string; expired: boolean; joined: boolean }>(
+    `SELECT r.id, r.title,
+            (r.status = 'running' AND r.ends_at <= now()) AS expired,
+            EXISTS (SELECT 1 FROM participants p WHERE p.room_id = r.id AND p.user_id = $2::uuid) AS joined
+       FROM rooms r
+      WHERE r.code = $1 AND r.status <> 'finished'
+      ORDER BY r.created_at DESC LIMIT 1`,
+    [clean, user.id],
   );
   if (!room) throw new HttpError(404, "Комнаты с таким кодом нет или тест уже завершён");
+  // Время вышло, а учитель ещё не нажал «Завершить»: новым ученикам входить уже поздно
+  if (room.expired && !room.joined) throw new HttpError(409, "Время этого теста уже вышло");
 
   await db.query(
     `INSERT INTO participants (room_id, user_id, name, login)

@@ -19,6 +19,7 @@ const STATUS: Record<Room["status"], { label: string; className: string }> = {
 export default function RoomsPage() {
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     Promise.all([api<{ rooms: Room[] }>("/api/admin/rooms"), api<{ topics: Topic[] }>("/api/admin/questions")])
@@ -26,7 +27,7 @@ export default function RoomsPage() {
         setRooms(roomData.rooms);
         setTopics(questionData.topics);
       })
-      .catch(() => {});
+      .catch((e) => setError(e instanceof Error ? e.message : "Не удалось загрузить комнаты"));
   }, []);
 
   return (
@@ -34,7 +35,11 @@ export default function RoomsPage() {
       <NewRoom topics={topics} />
       <section>
         <h2 className="font-display text-xl font-bold">Комнаты</h2>
-        {!rooms ? (
+        {error ? (
+          <div className="mt-4">
+            <ErrorText>{error}</ErrorText>
+          </div>
+        ) : !rooms ? (
           <div className="mt-6 text-cobalt">
             <Spinner />
           </div>
@@ -91,6 +96,7 @@ function NewRoom({ topics }: { topics: Topic[] }) {
 
   async function create(event: FormEvent) {
     event.preventDefault();
+    if (busy) return; // Enter в поле, пока комната уже создаётся
     if (duration < 1 || duration > 180) return setError("Время теста — от 1 до 180 минут");
     if (count < 1 || count > 100) return setError("Вопросов в тесте — от 1 до 100");
     setBusy(true);
@@ -180,7 +186,7 @@ function NewRoom({ topics }: { topics: Topic[] }) {
       </fieldset>
 
       <ErrorText>{error}</ErrorText>
-      <button className="btn btn-primary w-full" disabled={busy || chosen.length === 0}>
+      <button className="btn btn-primary w-full" disabled={busy || available === 0}>
         {busy ? <Spinner /> : null} Создать комнату
       </button>
     </form>

@@ -230,8 +230,13 @@ function CreatedList({ created, onClose }: { created: Created[]; onClose: () => 
         <button
           className="btn btn-soft btn-sm"
           onClick={async () => {
-            await navigator.clipboard.writeText(text).catch(() => {});
-            setCopied(true);
+            // Без https (например, по IP в локальной сети) буфер обмена недоступен — тогда честно не пишем «Скопировано»
+            const ok = await navigator.clipboard?.writeText(text).then(
+              () => true,
+              () => false,
+            );
+            setCopied(Boolean(ok));
+            if (!ok) print();
           }}
         >
           {copied ? "Скопировано" : "Скопировать"}
@@ -253,60 +258,122 @@ function escape(text: string) {
 
 function StudentRow({ student, onChange }: { student: Student; onChange: () => Promise<void> }) {
   const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState(false);
+  const [mode, setMode] = useState<"idle" | "rename" | "reset" | "delete">("idle");
+  const [name, setName] = useState(student.name);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  async function reset() {
+  async function run(action: () => Promise<void>) {
     setBusy(true);
+    setError("");
     try {
+      await action();
+      setMode("idle");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const reset = () =>
+    run(async () => {
       const data = await api<{ password: string }>(`/api/admin/students/${student.id}`, {
         method: "PATCH",
         body: { resetPassword: true },
       });
       setPassword(data.password);
-    } finally {
-      setBusy(false);
-    }
-  }
+    });
 
-  async function remove() {
-    setBusy(true);
-    try {
+  const remove = () =>
+    run(async () => {
       await api(`/api/admin/students/${student.id}`, { method: "DELETE" });
       await onChange();
-    } finally {
-      setBusy(false);
-    }
+    });
+
+  function rename(event: FormEvent) {
+    event.preventDefault();
+    run(async () => {
+      await api(`/api/admin/students/${student.id}`, { method: "PATCH", body: { name } });
+      await onChange();
+    });
   }
 
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold">{student.name}</p>
-        <p className="text-sm text-muted">{student.login}</p>
+    <li className="px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {mode === "rename" ? (
+          <form onSubmit={rename} className="flex min-w-0 flex-1 flex-wrap gap-2">
+            <input
+              className="input !min-h-9 min-w-48 flex-1 !py-1.5"
+              aria-label="Имя и фамилия"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+            <button className="btn btn-primary btn-sm" disabled={busy || !name.trim()}>
+              Сохранить
+            </button>
+            <button type="button" className="btn btn-soft btn-sm" onClick={() => setMode("idle")}>
+              Отмена
+            </button>
+          </form>
+        ) : (
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">{student.name}</p>
+            <p className="text-sm text-muted">{student.login}</p>
+          </div>
+        )}
+        {password && (
+          <span className="rounded-lg bg-green-soft px-3 py-1.5 text-[15px]">
+            Новый пароль: <b className="font-display tracking-wider">{password}</b>
+          </span>
+        )}
+        {mode === "reset" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[15px]">Старый пароль перестанет работать, ученика выкинет из аккаунта.</span>
+            <button className="btn btn-soft btn-sm" onClick={() => setMode("idle")}>
+              Отмена
+            </button>
+            <button className="btn btn-primary btn-sm" disabled={busy} onClick={reset}>
+              Выдать пароль
+            </button>
+          </div>
+        )}
+        {mode === "delete" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[15px]">Удалить ученика? Его старые результаты останутся.</span>
+            <button className="btn btn-soft btn-sm" onClick={() => setMode("idle")}>
+              Отмена
+            </button>
+            <button className="btn btn-danger btn-sm" disabled={busy} onClick={remove}>
+              Удалить
+            </button>
+          </div>
+        )}
+        {mode === "idle" && (
+          <div className="flex gap-2">
+            <button
+              className="btn btn-soft btn-sm"
+              onClick={() => {
+                setName(student.name);
+                setMode("rename");
+              }}
+            >
+              Имя
+            </button>
+            <button className="btn btn-soft btn-sm" onClick={() => setMode("reset")}>
+              Новый пароль
+            </button>
+            <button className="btn btn-soft btn-sm !px-2.5" aria-label="Удалить ученика" onClick={() => setMode("delete")}>
+              <TrashIcon className="size-4" />
+            </button>
+          </div>
+        )}
       </div>
-      {password && (
-        <span className="rounded-lg bg-green-soft px-3 py-1.5 text-[15px]">
-          Новый пароль: <b className="font-display tracking-wider">{password}</b>
-        </span>
-      )}
-      {confirm ? (
-        <div className="flex gap-2">
-          <button className="btn btn-soft btn-sm" onClick={() => setConfirm(false)}>
-            Отмена
-          </button>
-          <button className="btn btn-danger btn-sm" disabled={busy} onClick={remove}>
-            Удалить
-          </button>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <button className="btn btn-soft btn-sm" disabled={busy} onClick={reset}>
-            Новый пароль
-          </button>
-          <button className="btn btn-soft btn-sm !px-2.5" aria-label="Удалить ученика" onClick={() => setConfirm(true)}>
-            <TrashIcon className="size-4" />
-          </button>
+      {error && (
+        <div className="mt-2">
+          <ErrorText>{error}</ErrorText>
         </div>
       )}
     </li>

@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { ErrorText, FullScreenLoader, Logo, Spinner } from "@/components/ui";
 import { api } from "@/lib/client";
-import { setCurrent, unfinishedTest, type Current } from "@/lib/test-storage";
+import { clearCurrent, setCurrent, unfinishedTest, type Current } from "@/lib/test-storage";
 import type { Me } from "@/lib/types";
 
 export default function JoinPage() {
@@ -47,6 +47,9 @@ export default function JoinPage() {
   }
 
   async function logout() {
+    // На общем компьютере следующий ученик не должен попасть в чужой тест.
+    // Сами ответы остаются на устройстве и найдутся, когда этот ученик войдёт снова.
+    clearCurrent();
     await api("/api/auth/logout", { method: "POST" }).catch(() => {});
     window.location.assign("/login");
   }
