@@ -17,19 +17,58 @@ import type { ResultPayload, RoomState, SubmitResult, TestPayload } from "@/lib/
 
 const LETTERS = ["А", "Б", "В", "Г", "Д", "Е"];
 
-// Есть ли сейчас интернет (браузер сообщает об этом событиями online/offline)
-function useOnline() {
+// Есть ли сейчас НАСТОЯЩИЙ интернет.
+// Одного navigator.onLine мало: на Windows он говорит «онлайн», если подключён хоть какой-то
+// сетевой адаптер (например, виртуальная сеть WSL). Поэтому раз в 3 секунды стучимся на свой сервер.
+function useConnectivity(enabled: boolean, onBecameOnline: () => void) {
   const [online, setOnline] = useState(true);
+  const last = useRef<boolean | null>(null);
+  const callback = useRef(onBecameOnline);
   useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    update();
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
-    return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
+    callback.current = onBecameOnline;
+  });
+
+  useEffect(() => {
+    if (!enabled) return;
+    let stopped = false;
+    let busy = false;
+
+    const check = async () => {
+      if (busy || stopped) return;
+      busy = true;
+      let next = false;
+      if (navigator.onLine) {
+        try {
+          const response = await fetch(`/api/ping?t=${Date.now()}`, {
+            cache: "no-store",
+            signal: AbortSignal.timeout(4000),
+          });
+          next = response.ok;
+        } catch {
+          next = false;
+        }
+      }
+      busy = false;
+      if (stopped) return;
+      const previous = last.current;
+      last.current = next;
+      setOnline(next);
+      if (previous === false && next) callback.current(); // интернет только что появился
     };
-  }, []);
+
+    const first = setTimeout(check, 0);
+    const id = setInterval(check, 3000);
+    window.addEventListener("online", check);
+    window.addEventListener("offline", check);
+    return () => {
+      stopped = true;
+      clearTimeout(first);
+      clearInterval(id);
+      window.removeEventListener("online", check);
+      window.removeEventListener("offline", check);
+    };
+  }, [enabled]);
+
   return online;
 }
 
@@ -51,7 +90,6 @@ function useNow(intervalMs: number) {
 export function TestRunner() {
   const [saved, setSaved] = useState<Saved | null>(null);
   const savedRef = useRef<Saved | null>(null);
-  const online = useOnline();
   const now = useNow(500);
 
   const [lobby, setLobby] = useState<RoomState | null>(null);
@@ -84,6 +122,40 @@ export function TestRunner() {
 
   const phase = saved?.phase;
   const roomId = saved?.roomId;
+
+  // Подсказка вверху экрана на 6 секунд
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const showNotice = useCallback((kind: "leave" | "online", text: string) => {
+    setNotice({ kind, text });
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 6000);
+  }, []);
+
+  // Сообщаем учителю о нарушении (получится, только если интернет есть)
+  const report = useCallback(() => {
+    const s = savedRef.current;
+    if (!s) return;
+    fetch(`/api/rooms/${s.roomId}/event`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ behaviour: s.behaviour }),
+      keepalive: true,
+    }).catch(() => {});
+  }, []);
+
+  // Интернет появился во время теста — это нарушение
+  const online = useConnectivity(phase !== undefined && phase !== "lobby" && phase !== "closed", () => {
+    const s = savedRef.current;
+    if (s?.phase !== "running") return;
+    if (!s.behaviour.onlineMode) {
+      update((state) => ({
+        ...state,
+        behaviour: { ...state.behaviour, onlineCount: state.behaviour.onlineCount + 1 },
+      }));
+      showNotice("online", "Интернет включился — учитель это видит. Выключи его, пока решаешь тест.");
+    }
+    report();
+  });
 
   // 2. Ждём, пока учитель нажмёт «Начать тест» (спрашиваем сервер каждые 2 секунды)
   useEffect(() => {
@@ -150,25 +222,6 @@ export function TestRunner() {
   useEffect(() => {
     if (phase !== "running") return;
     let awaySince: number | null = null;
-    let noticeTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const show = (kind: "leave" | "online", text: string) => {
-      setNotice({ kind, text });
-      clearTimeout(noticeTimer);
-      noticeTimer = setTimeout(() => setNotice(null), 6000);
-    };
-
-    // Если интернет есть — сразу сообщаем учителю
-    const report = () => {
-      const s = savedRef.current;
-      if (!s || !navigator.onLine) return;
-      fetch(`/api/rooms/${s.roomId}/event`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ behaviour: s.behaviour }),
-        keepalive: true,
-      }).catch(() => {});
-    };
 
     const check = () => {
       const away = document.visibilityState === "hidden" || !document.hasFocus();
@@ -182,39 +235,28 @@ export function TestRunner() {
             ...s,
             behaviour: { ...s.behaviour, leaves: s.behaviour.leaves + 1, awayMs: s.behaviour.awayMs + duration },
           }));
-          show("leave", "Ты уходил со страницы теста — учитель это увидит.");
+          showNotice("leave", "Ты уходил со страницы теста — учитель это увидит.");
           report();
         }
       }
     };
 
-    const onOnline = () => {
-      if (!savedRef.current?.behaviour.onlineMode) {
-        update((s) => ({ ...s, behaviour: { ...s.behaviour, onlineCount: s.behaviour.onlineCount + 1 } }));
-        show("online", "Интернет включился — учитель это видит. Выключи его, пока решаешь тест.");
-      }
-      report();
-    };
-
     window.addEventListener("blur", check);
     window.addEventListener("focus", check);
     document.addEventListener("visibilitychange", check);
-    window.addEventListener("online", onOnline);
     return () => {
       window.removeEventListener("blur", check);
       window.removeEventListener("focus", check);
       document.removeEventListener("visibilitychange", check);
-      window.removeEventListener("online", onOnline);
-      clearTimeout(noticeTimer);
     };
-  }, [phase, update]);
+  }, [phase, update, showNotice, report]);
 
   // 5. Тест закончен — отправляем ответы, как только появится интернет
   const [submitError, setSubmitError] = useState("");
   const [sending, setSending] = useState(false);
   const submit = useCallback(async () => {
     const s = savedRef.current;
-    if (!s || s.phase !== "finishing" || !navigator.onLine) return;
+    if (!s || s.phase !== "finishing") return;
     setSending(true);
     try {
       const result = await api<SubmitResult>(`/api/rooms/${s.roomId}/submit`, {
