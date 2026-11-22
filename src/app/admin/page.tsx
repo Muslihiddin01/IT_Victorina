@@ -71,9 +71,12 @@ export default function RoomsPage() {
 
 function NewRoom({ topics }: { topics: Topic[] }) {
   const [title, setTitle] = useState("Тест по пройденным темам");
-  const [duration, setDuration] = useState(10);
+  // Числа храним как текст: так поле можно очистить и спокойно ввести своё значение
+  const [durationText, setDurationText] = useState("10");
   const [custom, setCustom] = useState(false);
-  const [count, setCount] = useState(20);
+  const [countText, setCountText] = useState("20");
+  const duration = Number(durationText) || 0;
+  const count = Number(countText) || 0;
   const [selected, setSelected] = useState<number[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -88,6 +91,8 @@ function NewRoom({ topics }: { topics: Topic[] }) {
 
   async function create(event: FormEvent) {
     event.preventDefault();
+    if (duration < 1 || duration > 180) return setError("Время теста — от 1 до 180 минут");
+    if (count < 1 || count > 100) return setError("Вопросов в тесте — от 1 до 100");
     setBusy(true);
     setError("");
     try {
@@ -121,7 +126,7 @@ function NewRoom({ topics }: { topics: Topic[] }) {
               type="button"
               key={minutes}
               onClick={() => {
-                setDuration(minutes);
+                setDurationText(String(minutes));
                 setCustom(false);
               }}
               className={`btn btn-sm !min-h-11 ${!custom && duration === minutes ? "btn-primary" : "btn-soft"}`}
@@ -139,15 +144,7 @@ function NewRoom({ topics }: { topics: Topic[] }) {
         </div>
         {custom && (
           <div className="mt-2 flex items-center gap-2">
-            <input
-              className="input !w-28"
-              type="number"
-              min={1}
-              max={180}
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-              aria-label="Минут"
-            />
+            <NumberInput value={durationText} onChange={setDurationText} label="Минут" />
             <span className="text-muted">минут</span>
           </div>
         )}
@@ -157,15 +154,7 @@ function NewRoom({ topics }: { topics: Topic[] }) {
         <label className="label" htmlFor="count">
           Вопросов в тесте
         </label>
-        <input
-          id="count"
-          className="input !w-28"
-          type="number"
-          min={1}
-          max={100}
-          value={count}
-          onChange={(e) => setCount(Number(e.target.value))}
-        />
+        <NumberInput id="count" value={countText} onChange={setCountText} />
       </div>
 
       <fieldset>
@@ -195,5 +184,30 @@ function NewRoom({ topics }: { topics: Topic[] }) {
         {busy ? <Spinner /> : null} Создать комнату
       </button>
     </form>
+  );
+}
+
+// Поле для числа: только цифры, можно стереть всё и ввести заново (без «01»)
+function NumberInput({
+  id,
+  value,
+  onChange,
+  label,
+}: {
+  id?: string;
+  value: string;
+  onChange: (value: string) => void;
+  label?: string;
+}) {
+  return (
+    <input
+      id={id}
+      className="input !w-28"
+      type="text"
+      inputMode="numeric"
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/\D/g, "").replace(/^0+/, "").slice(0, 3))}
+    />
   );
 }
