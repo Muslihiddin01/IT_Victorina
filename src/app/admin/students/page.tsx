@@ -132,21 +132,34 @@ function AddOne({ onAdd }: { onAdd: (list: { name: string; login?: string; passw
   );
 }
 
-function AddMany({ onAdd }: { onAdd: (list: { name: string }[]) => Promise<void> }) {
+// Строка «Имя Фамилия» или «Имя Фамилия; логин; пароль» (логин и пароль можно не писать)
+function parseStudent(line: string) {
+  const [name = "", login = "", password = ""] = line.split(/[;\t]/).map((part) => part.trim());
+  return { name, login: login || undefined, password: password || undefined };
+}
+
+function AddMany({
+  onAdd,
+}: {
+  onAdd: (list: { name: string; login?: string; password?: string }[]) => Promise<void>;
+}) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const names = text
+  const students = text
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map(parseStudent)
+    .filter((student) => student.name);
+  const names = students.map((student) => student.name);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await onAdd(names.map((name) => ({ name })));
+      await onAdd(students);
       setText("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
@@ -170,7 +183,10 @@ function AddMany({ onAdd }: { onAdd: (list: { name: string }[]) => Promise<void>
           onChange={(e) => setText(e.target.value)}
         />
       </div>
-      <p className="text-sm text-muted">Логины и пароли сайт придумает сам и покажет их списком для печати.</p>
+      <p className="text-sm text-muted">
+        Логины и пароли сайт придумает сам и покажет их списком для печати. Свои можно указать через точку с запятой:{" "}
+        <span className="whitespace-nowrap font-semibold">Алиев Фаррух; aliev; 123456</span>
+      </p>
       <ErrorText>{error}</ErrorText>
       <button className="btn btn-soft w-full" disabled={busy || names.length === 0}>
         {busy ? <Spinner /> : null}
