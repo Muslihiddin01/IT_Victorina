@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { ErrorText, Spinner } from "@/components/ui";
 import { api } from "@/lib/client";
+import { LangSwitch, RU_TEXT, useLang } from "@/lib/i18n";
 import { hasPendingCode, unfinishedTest } from "@/lib/test-storage";
 import type { Me } from "@/lib/types";
 
@@ -20,6 +21,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [adminReady, setAdminReady] = useState(true);
+  const { t, err } = useLang();
 
   // Уже вошёл — сразу дальше
   useEffect(() => {
@@ -39,7 +41,7 @@ export default function LoginPage() {
       const { user } = await api<{ user: Me }>("/api/auth/login", { method: "POST", body: { login, password } });
       goHome(user);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка входа");
+      setError(e instanceof Error ? e.message : RU_TEXT.signInFailed);
       setBusy(false);
     }
   }
@@ -47,17 +49,20 @@ export default function LoginPage() {
   return (
     <main className="flex flex-1 flex-col bg-cobalt">
       <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-5 py-10">
-        <div className="flex gap-3 text-[40px]" aria-hidden>
-          <span className="keycap size-[1.75em] -rotate-6">I</span>
-          <span className="keycap mt-3 size-[1.75em] rotate-[5deg]">T</span>
+        <div className="flex items-start justify-between">
+          <div className="flex gap-3 text-[40px]" aria-hidden>
+            <span className="keycap size-[1.75em] -rotate-6">I</span>
+            <span className="keycap mt-3 size-[1.75em] rotate-[5deg]">T</span>
+          </div>
+          <LangSwitch tone="dark" />
         </div>
         <h1 className="mt-8 font-display text-[34px] font-bold leading-tight text-white">Викторина</h1>
-        <p className="mt-2 text-lg text-white/85">Войди под логином и паролем, которые дал учитель.</p>
+        <p className="mt-2 text-lg text-white/85">{t.loginLead}</p>
 
         <form onSubmit={submit} className="mt-8 space-y-4 rounded-[22px] bg-white p-5 shadow-[0_6px_0_var(--color-cobalt-edge)]">
           <div>
             <label className="label" htmlFor="login">
-              Логин
+              {t.login}
             </label>
             <input
               id="login"
@@ -73,7 +78,7 @@ export default function LoginPage() {
           </div>
           <div>
             <label className="label" htmlFor="password">
-              Пароль
+              {t.password}
             </label>
             <input
               id="password"
@@ -85,10 +90,10 @@ export default function LoginPage() {
               required
             />
           </div>
-          <ErrorText>{error}</ErrorText>
+          <ErrorText>{err(error)}</ErrorText>
           <button className="btn btn-primary w-full text-lg" disabled={busy}>
             {busy ? <Spinner /> : null}
-            Войти
+            {t.signIn}
           </button>
         </form>
 

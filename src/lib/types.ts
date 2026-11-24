@@ -12,6 +12,7 @@ export type Me = {
 export type Topic = {
   id: number;
   title: string;
+  titleTj: string | null; // название по-таджикски (может отсутствовать)
   position: number;
   questionCount: number;
 };
@@ -23,6 +24,10 @@ export type Question = {
   options: string[];
   correct: number; // номер правильного варианта (с нуля)
   explanation: string; // почему ответ правильный (может быть пустым)
+  // Перевод на таджикский. Варианты идут парами: optionsTj[2] — перевод options[2].
+  textTj: string | null;
+  optionsTj: string[] | null;
+  explanationTj: string;
 };
 
 export type Student = {
@@ -97,8 +102,15 @@ export type RoomDetail = {
   serverNow: number;
 };
 
+// Таджикский вариант вопроса (если учитель его заполнил). Пусто — показываем русский.
+export type Translation = {
+  topicTj?: string | null;
+  textTj?: string | null;
+  optionsTj?: string[] | null;
+};
+
 // Вопрос в том виде, в каком его получает ученик (без правильного ответа!)
-export type TestQuestion = {
+export type TestQuestion = Translation & {
   n: number;
   topic: string;
   text: string;
@@ -132,7 +144,7 @@ export type SubmitResult = {
   total: number;
 };
 
-export type ReviewItem = {
+export type ReviewItem = Translation & {
   n: number;
   topic: string;
   text: string;
@@ -140,6 +152,7 @@ export type ReviewItem = {
   correct: number;
   chosen: number | null;
   explanation: string;
+  explanationTj?: string;
 };
 
 export type ResultPayload = {

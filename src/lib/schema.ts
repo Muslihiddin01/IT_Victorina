@@ -87,6 +87,17 @@ export const SCHEMA = [
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS explanation text NOT NULL DEFAULT ''`,
   `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS explanation text NOT NULL DEFAULT ''`,
 
+  // Таджикский язык: переводы тем и вопросов. Пусто — ученик видит русский вариант.
+  // Варианты идут парами: options_tj[2] — перевод options[2].
+  `ALTER TABLE topics ADD COLUMN IF NOT EXISTS title_tj text`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS text_tj text`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS options_tj jsonb`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS explanation_tj text NOT NULL DEFAULT ''`,
+  `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS topic_title_tj text`,
+  `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS text_tj text`,
+  `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS options_tj jsonb`,
+  `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS explanation_tj text NOT NULL DEFAULT ''`,
+
   // Разовые правки данных (например, обновление первых вопросов). Каждая выполняется один раз.
   `CREATE TABLE IF NOT EXISTS migrations (
     name text PRIMARY KEY,

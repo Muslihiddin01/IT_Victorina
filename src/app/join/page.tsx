@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { ErrorText, FullScreenLoader, Logo, Spinner } from "@/components/ui";
 import { api } from "@/lib/client";
+import { LangSwitch, RU_TEXT, useLang } from "@/lib/i18n";
 import {
   clearCurrent,
   savePendingCode,
@@ -31,6 +32,7 @@ export default function JoinPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [unfinished, setUnfinished] = useState<Current | null>(null);
+  const { t, err } = useLang();
 
   useEffect(() => {
     // Пришли по QR-коду: /join?code=1234. Запоминаем код — он понадобится и после входа в аккаунт.
@@ -52,7 +54,7 @@ export default function JoinPage() {
             setCode(pending);
             setBusy(true);
             enterRoom(user, pending).catch((e) => {
-              setError(e instanceof Error ? e.message : "Ошибка");
+              setError(e instanceof Error ? e.message : RU_TEXT.error);
               setBusy(false);
             });
           }
@@ -69,7 +71,7 @@ export default function JoinPage() {
     try {
       await enterRoom(me, code);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка");
+      setError(e instanceof Error ? e.message : RU_TEXT.error);
       setBusy(false);
     }
   }
@@ -86,21 +88,24 @@ export default function JoinPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col px-5 pb-10 pt-5">
-      <header className="flex items-center justify-between">
-        <Logo />
-        <button className="text-[15px] font-semibold text-muted hover:text-ink" onClick={logout}>
-          Выйти
-        </button>
+      <header className="flex items-center justify-between gap-2">
+        <Logo compact />
+        <div className="flex items-center gap-3">
+          <LangSwitch />
+          <button className="whitespace-nowrap text-[15px] font-semibold text-muted hover:text-ink" onClick={logout}>
+            {t.logout}
+          </button>
+        </div>
       </header>
 
       <div className="flex flex-1 flex-col justify-center py-8">
-        {me && <p className="text-lg text-muted">Привет, {me.name}!</p>}
-        <h1 className="mt-1 font-display text-[28px] font-bold leading-tight">Код комнаты</h1>
-        <p className="mt-2 text-lg leading-relaxed">Учитель покажет его на экране: 4 цифры.</p>
+        {me && <p className="text-lg text-muted">{t.hello(me.name)}</p>}
+        <h1 className="mt-1 font-display text-[28px] font-bold leading-tight">{t.roomCode}</h1>
+        <p className="mt-2 text-lg leading-relaxed">{t.roomCodeHint}</p>
 
         {unfinished && (
           <a href="/test" className="btn btn-green mt-6 w-full text-lg">
-            Вернуться к тесту «{unfinished.title}»
+            {t.backToTest(unfinished.title)}
           </a>
         )}
 
@@ -111,14 +116,14 @@ export default function JoinPage() {
             autoComplete="off"
             maxLength={4}
             placeholder="0000"
-            aria-label="Код комнаты"
+            aria-label={t.roomCode}
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
           />
-          <ErrorText>{error}</ErrorText>
+          <ErrorText>{err(error)}</ErrorText>
           <button className="btn btn-primary w-full text-lg" disabled={busy || code.length !== 4}>
             {busy ? <Spinner /> : null}
-            Войти в комнату
+            {t.joinRoom}
           </button>
         </form>
       </div>

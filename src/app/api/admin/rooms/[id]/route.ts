@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { HttpError, json, readJson, route } from "@/lib/http";
+import { jsonOrNull } from "@/lib/questions";
 import { getParticipants, getRoom, pickQuestions } from "@/lib/rooms";
 
 // GET /api/admin/rooms/:id — комната, ученики и их результаты (учитель обновляет каждые 2 секунды)
@@ -32,11 +33,13 @@ export const PATCH = route(async (req, { id }) => {
       if (questions.length === 0) throw new HttpError(400, "В выбранных темах нет вопросов");
       for (const [index, question] of questions.entries()) {
         await tx.query(
-          `INSERT INTO room_questions (room_id, n, topic_title, text, options, correct, explanation)
-           VALUES ($1::uuid, $2::int, $3, $4, $5::text::jsonb, $6::int, $7)`,
+          `INSERT INTO room_questions (room_id, n, topic_title, text, options, correct, explanation,
+                                      topic_title_tj, text_tj, options_tj, explanation_tj)
+           VALUES ($1::uuid, $2::int, $3, $4, $5::text::jsonb, $6::int, $7, $8, $9, $10::text::jsonb, $11)`,
           [
             room.id, index + 1, question.topic, question.text, JSON.stringify(question.options), question.correct,
-            question.explanation,
+            question.explanation, question.topicTj, question.textTj, jsonOrNull(question.optionsTj),
+            question.explanationTj,
           ],
         );
       }

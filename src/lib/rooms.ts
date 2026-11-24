@@ -33,12 +33,17 @@ type QuestionRow = {
   options: string[];
   correct: number;
   explanation: string;
+  topic_title_tj: string | null;
+  text_tj: string | null;
+  options_tj: string[] | null;
+  explanation_tj: string;
 };
 
 // Берём вопросы из выбранных тем по кругу, чтобы темы перемешались поровну
 export async function pickQuestions(db: Db, topicIds: number[], count: number) {
   const rows = await db.query<QuestionRow>(
-    `SELECT q.id, q.topic_id, t.title AS topic_title, q.text, q.options, q.correct, q.explanation
+    `SELECT q.id, q.topic_id, t.title AS topic_title, q.text, q.options, q.correct, q.explanation,
+            t.title_tj AS topic_title_tj, q.text_tj, q.options_tj, q.explanation_tj
        FROM questions q JOIN topics t ON t.id = q.topic_id`,
   );
   const allowed = new Set(topicIds);
@@ -56,15 +61,21 @@ export async function pickQuestions(db: Db, topicIds: number[], count: number) {
     }
   }
 
-  // Перемешиваем порядок вопросов и вариантов, запоминаем, где теперь правильный
+  // Перемешиваем порядок вопросов и вариантов, запоминаем, где теперь правильный.
+  // Таджикские варианты переставляем в том же порядке, чтобы пары не разъехались.
   return shuffle(picked).map((question) => {
     const order = shuffle(question.options.map((_, index) => index));
+    const tj = question.text_tj && question.options_tj?.length === question.options.length ? question.options_tj : null;
     return {
       topic: question.topic_title,
       text: question.text,
       options: order.map((index) => question.options[index]),
       correct: order.indexOf(question.correct),
       explanation: question.explanation ?? "",
+      topicTj: question.topic_title_tj,
+      textTj: tj ? question.text_tj : null,
+      optionsTj: tj ? order.map((index) => tj[index]) : null,
+      explanationTj: tj ? (question.explanation_tj ?? "") : "",
     };
   });
 }

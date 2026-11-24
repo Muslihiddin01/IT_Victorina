@@ -13,7 +13,8 @@ export const GET = route(async (req, { id }) => {
   if (room.endsAt !== null && room.endsAt <= Date.now()) throw new HttpError(409, "Время теста уже вышло");
 
   const questions = await db.query<TestQuestion>(
-    `SELECT n, topic_title AS topic, text, options
+    `SELECT n, topic_title AS topic, text, options,
+            topic_title_tj AS "topicTj", text_tj AS "textTj", options_tj AS "optionsTj"
        FROM room_questions WHERE room_id = $1::uuid ORDER BY n`,
     [room.id],
   );

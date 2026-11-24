@@ -11,7 +11,9 @@ export const GET = route(async (req, { id }) => {
 
   if (room.status === "finished" && participant.submitted_at) {
     const rows = await db.query<Omit<ReviewItem, "chosen">>(
-      `SELECT n, topic_title AS topic, text, options, correct, explanation
+      `SELECT n, topic_title AS topic, text, options, correct, explanation,
+              topic_title_tj AS "topicTj", text_tj AS "textTj", options_tj AS "optionsTj",
+              explanation_tj AS "explanationTj"
          FROM room_questions WHERE room_id = $1::uuid ORDER BY n`,
       [room.id],
     );

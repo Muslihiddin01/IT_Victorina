@@ -3,6 +3,7 @@ import "server-only";
 import type { Db } from "./db";
 import { hashPassword, verifyPassword } from "./password";
 import { SEED_FIXES_V2 } from "./seed-fixes";
+import { SEED_TJ } from "./seed-tj";
 
 // Первые вопросы по урокам 1–7 и основам HTML/CSS/JS.
 // В каждом вопросе ПЕРВЫЙ вариант — правильный. При создании теста варианты
@@ -539,32 +540,75 @@ export async function seedIfEmpty(db: Db) {
   if (count > 0) return;
 
   for (const [index, topic] of SEED_TOPICS.entries()) {
+    const tj = SEED_TJ[index];
     const [row] = await db.query<{ id: number }>(
-      "INSERT INTO topics (title, position) VALUES ($1, $2::int) RETURNING id",
-      [topic.title, index + 1],
+      "INSERT INTO topics (title, title_tj, position) VALUES ($1, $2, $3::int) RETURNING id",
+      [topic.title, tj?.title ?? null, index + 1],
     );
-    for (const [text, options] of topic.questions) {
+    for (const [n, [text, options]] of topic.questions.entries()) {
+      const [textTj, optionsTj] = tj?.questions[n] ?? [null, null];
       await db.query(
-        "INSERT INTO questions (topic_id, text, options, correct) VALUES ($1::int, $2, $3::text::jsonb, 0)",
-        [row.id, text, JSON.stringify(options)],
+        `INSERT INTO questions (topic_id, text, options, correct, text_tj, options_tj)
+         VALUES ($1::int, $2, $3::text::jsonb, 0, $4, $5::text::jsonb)`,
+        [row.id, text, JSON.stringify(options), textTj, optionsTj ? JSON.stringify(optionsTj) : null],
       );
     }
   }
 }
 
-// Разовые правки данных. Каждая выполняется один раз и записывается в таблицу migrations.
+// Разовые правки данных. Каждая выполняется один раз (по порядку) и записывается в таблицу migrations.
+const MIGRATIONS: [name: string, run: (db: Db) => Promise<void>][] = [
+  [
+    "2026-11-seed-options-v2",
+    // Новые варианты только для вопросов, которые учитель не менял (варианты совпадают со старыми)
+    async (db) => {
+      await db.query(
+        `UPDATE questions q SET options = f.new_options
+           FROM jsonb_to_recordset($1::text::jsonb) AS f(text text, old_options jsonb, new_options jsonb)
+          WHERE q.text = f.text AND q.options = f.old_options AND q.correct = 0`,
+        [JSON.stringify(SEED_FIXES_V2.map(([text, oldOptions, newOptions]) => ({ text, old_options: oldOptions, new_options: newOptions })))],
+      );
+    },
+  ],
+  [
+    "2026-11-tajik-seed",
+    // Таджикский перевод первых тем и вопросов. Только там, где текст и варианты совпадают
+    // с seed.ts слово в слово и перевода ещё нет: что учитель изменил сам, не трогаем.
+    async (db) => {
+      const topics = SEED_TOPICS.map((topic, index) => ({ title: topic.title, title_tj: SEED_TJ[index].title }));
+      const questions = SEED_TOPICS.flatMap((topic, index) =>
+        topic.questions.map(([text, options], n) => ({
+          text,
+          options,
+          text_tj: SEED_TJ[index].questions[n][0],
+          options_tj: SEED_TJ[index].questions[n][1],
+        })),
+      );
+      await db.query(
+        `UPDATE topics t SET title_tj = s.title_tj
+           FROM jsonb_to_recordset($1::text::jsonb) AS s(title text, title_tj text)
+          WHERE t.title = s.title AND t.title_tj IS NULL`,
+        [JSON.stringify(topics)],
+      );
+      await db.query(
+        `UPDATE questions q SET text_tj = s.text_tj, options_tj = s.options_tj
+           FROM jsonb_to_recordset($1::text::jsonb) AS s(text text, options jsonb, text_tj text, options_tj jsonb)
+          WHERE q.text = s.text AND q.options = s.options AND q.correct = 0 AND q.text_tj IS NULL`,
+        [JSON.stringify(questions)],
+      );
+    },
+  ],
+];
+
 export async function applyMigrations(db: Db) {
-  const name = "2026-11-seed-options-v2";
-  const done = await db.query("SELECT 1 FROM migrations WHERE name = $1", [name]);
-  if (done.length > 0) return;
-  // Новые варианты только для вопросов, которые учитель не менял (варианты совпадают со старыми)
-  await db.query(
-    `UPDATE questions q SET options = f.new_options
-       FROM jsonb_to_recordset($1::text::jsonb) AS f(text text, old_options jsonb, new_options jsonb)
-      WHERE q.text = f.text AND q.options = f.old_options AND q.correct = 0`,
-    [JSON.stringify(SEED_FIXES_V2.map(([text, oldOptions, newOptions]) => ({ text, old_options: oldOptions, new_options: newOptions })))],
+  const done = new Set(
+    (await db.query<{ name: string }>("SELECT name FROM migrations")).map((row) => row.name),
   );
-  await db.query("INSERT INTO migrations (name) VALUES ($1) ON CONFLICT DO NOTHING", [name]);
+  for (const [name, run] of MIGRATIONS) {
+    if (done.has(name)) continue;
+    await run(db);
+    await db.query("INSERT INTO migrations (name) VALUES ($1) ON CONFLICT DO NOTHING", [name]);
+  }
 }
 
 // Админ берётся из переменных окружения ADMIN_LOGIN и ADMIN_PASSWORD.

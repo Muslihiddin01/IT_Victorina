@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { HttpError, json, readJson, route } from "@/lib/http";
+import { cleanTitle } from "@/lib/questions";
 
 function topicId(id: string) {
   const value = Number(id);
@@ -8,14 +9,19 @@ function topicId(id: string) {
   return value;
 }
 
-// PATCH /api/admin/topics/:id — переименовать тему
+// PATCH /api/admin/topics/:id — переименовать тему (по-русски и по-таджикски)
 export const PATCH = route(async (req, { id }) => {
   await requireUser(req, "admin");
-  const body = await readJson<{ title?: string }>(req);
-  const title = body.title?.trim().slice(0, 120);
+  const body = await readJson<{ title?: string; titleTj?: string }>(req);
+  const title = cleanTitle(body.title);
+  const titleTj = cleanTitle(body.titleTj) || null;
   if (!title) throw new HttpError(400, "Введите название темы");
   const db = await getDb();
-  const rows = await db.query("UPDATE topics SET title = $1 WHERE id = $2::int RETURNING id", [title, topicId(id)]);
+  const rows = await db.query("UPDATE topics SET title = $1, title_tj = $3 WHERE id = $2::int RETURNING id", [
+    title,
+    topicId(id),
+    titleTj,
+  ]);
   if (rows.length === 0) throw new HttpError(404, "Тема не найдена");
   return json({ ok: true });
 });

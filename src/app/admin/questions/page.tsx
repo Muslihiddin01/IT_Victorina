@@ -10,12 +10,26 @@ import type { Question, Topic } from "@/lib/types";
 
 const LETTERS = ["А", "Б", "В", "Г", "Д", "Е"];
 
-type Draft = { id?: string; topicId: number; text: string; options: string[]; correct: number; explanation: string };
+type Draft = {
+  id?: string;
+  topicId: number;
+  text: string;
+  options: string[];
+  correct: number;
+  explanation: string;
+  // Таджикский перевод. Варианты идут парами с options: optionsTj[2] — перевод options[2].
+  textTj: string;
+  optionsTj: string[];
+  explanationTj: string;
+};
+
+const hasTj = (question: Question) => Boolean(question.textTj && question.optionsTj?.length);
 
 export default function QuestionsPage() {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [questions, setQuestions] = useState<Question[] | null>(null);
   const [topicId, setTopicId] = useState<number | null>(null); // null — все темы
+  const [onlyUntranslated, setOnlyUntranslated] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState("");
 
@@ -34,7 +48,9 @@ export default function QuestionsPage() {
       .catch((e) => setError(e.message));
   }, []);
 
-  const visible = (questions ?? []).filter((q) => topicId === null || q.topicId === topicId);
+  const inTopic = (questions ?? []).filter((q) => topicId === null || q.topicId === topicId);
+  const untranslated = inTopic.filter((q) => !hasTj(q)).length;
+  const visible = onlyUntranslated ? inTopic.filter((q) => !hasTj(q)) : inTopic;
   const topicTitle = (id: number) => topics.find((t) => t.id === id)?.title ?? "";
   const selectedTopic = topics.find((t) => t.id === topicId) ?? null;
 
@@ -49,6 +65,9 @@ export default function QuestionsPage() {
       options: ["", "", "", ""],
       correct: 0,
       explanation: "",
+      textTj: "",
+      optionsTj: ["", "", "", ""],
+      explanationTj: "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -92,7 +111,7 @@ export default function QuestionsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-xl font-bold">
             {topicId === null ? "Все вопросы" : topicTitle(topicId)}
-            <span className="text-muted"> {visible.length}</span>
+            <span className="text-muted"> {inTopic.length}</span>
           </h2>
           <div className="flex flex-wrap gap-2">
             <button
@@ -110,6 +129,12 @@ export default function QuestionsPage() {
             </button>
           </div>
         </div>
+        {questions && (untranslated > 0 || onlyUntranslated) && (
+          <label className="flex w-fit cursor-pointer items-center gap-2 rounded-full bg-sun-soft px-3 py-1.5 text-sm font-semibold text-[#7a4f00]">
+            <input type="checkbox" checked={onlyUntranslated} onChange={(e) => setOnlyUntranslated(e.target.checked)} />
+            Только без таджикского перевода: {untranslated}
+          </label>
+        )}
         <ErrorText>{error}</ErrorText>
         {notice && (
           <p role="status" className="rounded-xl bg-green-soft px-3.5 py-2.5 text-[15px] font-medium text-green-edge">
@@ -147,7 +172,7 @@ export default function QuestionsPage() {
         {!questions ? (
           <Spinner className="size-6 text-cobalt" />
         ) : visible.length === 0 ? (
-          <p className="text-muted">В этой теме пока нет вопросов.</p>
+          <p className="text-muted">{onlyUntranslated ? "Все вопросы здесь переведены." : "В этой теме пока нет вопросов."}</p>
         ) : (
           <ol className="space-y-3">
             {visible.map((question, index) => (
@@ -158,7 +183,14 @@ export default function QuestionsPage() {
                 topic={topicId === null ? topicTitle(question.topicId) : null}
                 onEdit={() => {
                   setBulk(false);
-                  setDraft({ ...question, options: [...question.options], explanation: question.explanation ?? "" });
+                  setDraft({
+                    ...question,
+                    options: [...question.options],
+                    explanation: question.explanation ?? "",
+                    textTj: question.textTj ?? "",
+                    optionsTj: question.options.map((_, i) => question.optionsTj?.[i] ?? ""),
+                    explanationTj: question.explanationTj ?? "",
+                  });
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
                 onDeleted={load}
@@ -187,14 +219,16 @@ function TopicButton({ active, onClick, title, count }: { active: boolean; onCli
 
 function NewTopic({ onCreated }: { onCreated: (id: number) => Promise<void> }) {
   const [title, setTitle] = useState("");
+  const [titleTj, setTitleTj] = useState("");
   const [error, setError] = useState("");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     try {
-      const { id } = await api<{ id: number }>("/api/admin/topics", { method: "POST", body: { title } });
+      const { id } = await api<{ id: number }>("/api/admin/topics", { method: "POST", body: { title, titleTj } });
       setTitle("");
+      setTitleTj("");
       await onCreated(id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
@@ -206,18 +240,18 @@ function NewTopic({ onCreated }: { onCreated: (id: number) => Promise<void> }) {
       <label className="label" htmlFor="topic">
         Новая тема
       </label>
-      <div className="flex gap-2">
-        <input
-          id="topic"
-          className="input"
-          placeholder="Урок 8. …"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <button className="btn btn-soft !px-3" aria-label="Добавить тему" disabled={!title.trim()}>
-          <PlusIcon />
-        </button>
-      </div>
+      <input id="topic" className="input" placeholder="Урок 8. …" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <input
+        className="input"
+        lang="tg"
+        placeholder="По-таджикски: Дарси 8. … (можно позже)"
+        aria-label="Название темы по-таджикски"
+        value={titleTj}
+        onChange={(e) => setTitleTj(e.target.value)}
+      />
+      <button className="btn btn-soft btn-sm" disabled={!title.trim()}>
+        <PlusIcon className="size-4" /> Добавить тему
+      </button>
       <ErrorText>{error}</ErrorText>
     </form>
   );
@@ -235,6 +269,7 @@ function TopicTools({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(topic.title);
+  const [titleTj, setTitleTj] = useState(topic.titleTj ?? "");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -253,7 +288,7 @@ function TopicTools({
   function rename(event: FormEvent) {
     event.preventDefault();
     run(async () => {
-      await api(`/api/admin/topics/${topic.id}`, { method: "PATCH", body: { title } });
+      await api(`/api/admin/topics/${topic.id}`, { method: "PATCH", body: { title, titleTj } });
       await onRenamed();
       setRenaming(false);
     });
@@ -267,6 +302,14 @@ function TopicTools({
             Название темы
           </label>
           <input id="topic-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input
+            className="input"
+            lang="tg"
+            placeholder="По-таджикски"
+            aria-label="Название темы по-таджикски"
+            value={titleTj}
+            onChange={(e) => setTitleTj(e.target.value)}
+          />
           <div className="flex gap-2">
             <button className="btn btn-primary btn-sm" disabled={busy || !title.trim()}>
               Сохранить
@@ -277,6 +320,7 @@ function TopicTools({
               onClick={() => {
                 setRenaming(false);
                 setTitle(topic.title);
+                setTitleTj(topic.titleTj ?? "");
               }}
             >
               Отмена
@@ -285,6 +329,9 @@ function TopicTools({
         </form>
       ) : (
         <div className="flex flex-wrap gap-2">
+          <p lang="tg" className={`w-full text-[15px] ${topic.titleTj ? "" : "italic text-muted"}`}>
+            {topic.titleTj || "Нет названия по-таджикски"}
+          </p>
           <button className="btn btn-soft btn-sm" onClick={() => setRenaming(true)}>
             Переименовать тему
           </button>
@@ -326,11 +373,15 @@ function Editor({
 
   const setOption = (index: number, value: string) =>
     setDraft({ ...draft, options: draft.options.map((option, i) => (i === index ? value : option)) });
+  const setOptionTj = (index: number, value: string) =>
+    setDraft({ ...draft, optionsTj: draft.optionsTj.map((option, i) => (i === index ? value : option)) });
 
+  // Вариант убираем сразу на обоих языках, чтобы пары не разъехались
   function removeOption(index: number) {
     const options = draft.options.filter((_, i) => i !== index);
+    const optionsTj = draft.optionsTj.filter((_, i) => i !== index);
     const correct = draft.correct === index ? 0 : draft.correct > index ? draft.correct - 1 : draft.correct;
-    setDraft({ ...draft, options, correct });
+    setDraft({ ...draft, options, optionsTj, correct });
   }
 
   async function save(event: FormEvent) {
@@ -344,6 +395,9 @@ function Editor({
         options: draft.options,
         correct: draft.correct,
         explanation: draft.explanation,
+        textTj: draft.textTj,
+        optionsTj: draft.optionsTj,
+        explanationTj: draft.explanationTj,
       };
       if (draft.id) await api(`/api/admin/questions/${draft.id}`, { method: "PUT", body });
       else await api("/api/admin/questions", { method: "POST", body });
@@ -374,20 +428,34 @@ function Editor({
           ))}
         </select>
       </div>
-      <div>
-        <label className="label" htmlFor="q-text">
-          Вопрос
-        </label>
-        <textarea
-          id="q-text"
-          className="input min-h-24 resize-y leading-relaxed"
-          value={draft.text}
-          onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-          required
-        />
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label className="label" htmlFor="q-text">
+            Вопрос по-русски
+          </label>
+          <textarea
+            id="q-text"
+            className="input min-h-24 resize-y leading-relaxed"
+            value={draft.text}
+            onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+            required
+          />
+        </div>
+        <div>
+          <label className="label" htmlFor="q-text-tj">
+            По-таджикски <span className="font-normal text-muted">(можно позже)</span>
+          </label>
+          <textarea
+            id="q-text-tj"
+            lang="tg"
+            className="input min-h-24 resize-y leading-relaxed"
+            value={draft.textTj}
+            onChange={(e) => setDraft({ ...draft, textTj: e.target.value })}
+          />
+        </div>
       </div>
       <fieldset className="space-y-2">
-        <legend className="label">Варианты ответа: отметьте правильный</legend>
+        <legend className="label">Варианты ответа: отметьте правильный. Справа — тот же вариант по-таджикски</legend>
         {draft.options.map((option, index) => (
           <div key={index} className="flex items-center gap-2">
             <label
@@ -405,13 +473,23 @@ function Editor({
               />
               {draft.correct === index ? <CheckIcon /> : LETTERS[index]}
             </label>
-            <input
-              className="input"
-              value={option}
-              placeholder={`Вариант ${LETTERS[index]}`}
-              onChange={(e) => setOption(index, e.target.value)}
-              aria-label={`Вариант ${LETTERS[index]}`}
-            />
+            <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-2">
+              <input
+                className="input"
+                value={option}
+                placeholder={`Вариант ${LETTERS[index]}`}
+                onChange={(e) => setOption(index, e.target.value)}
+                aria-label={`Вариант ${LETTERS[index]}`}
+              />
+              <input
+                className="input"
+                lang="tg"
+                value={draft.optionsTj[index] ?? ""}
+                placeholder={`Ҷавоби ${LETTERS[index]} (тоҷ.)`}
+                onChange={(e) => setOptionTj(index, e.target.value)}
+                aria-label={`Вариант ${LETTERS[index]} по-таджикски`}
+              />
+            </div>
             {draft.options.length > 2 && (
               <button type="button" className="btn btn-soft !px-3" aria-label="Убрать вариант" onClick={() => removeOption(index)}>
                 <TrashIcon className="size-4" />
@@ -420,7 +498,7 @@ function Editor({
           </div>
         ))}
         {draft.options.length < 6 && (
-          <button type="button" className="text-[15px] font-semibold text-cobalt" onClick={() => setDraft({ ...draft, options: [...draft.options, ""] })}>
+          <button type="button" className="text-[15px] font-semibold text-cobalt" onClick={() => setDraft({ ...draft, options: [...draft.options, ""], optionsTj: [...draft.optionsTj, ""] })}>
             + ещё вариант
           </button>
         )}
@@ -435,6 +513,14 @@ function Editor({
           placeholder="Почему правильный ответ именно такой"
           value={draft.explanation}
           onChange={(e) => setDraft({ ...draft, explanation: e.target.value })}
+        />
+        <textarea
+          lang="tg"
+          aria-label="Пояснение по-таджикски"
+          className="input mt-2 min-h-20 resize-y leading-relaxed"
+          placeholder="То же пояснение по-таджикски (можно не писать)"
+          value={draft.explanationTj}
+          onChange={(e) => setDraft({ ...draft, explanationTj: e.target.value })}
         />
       </div>
       <ErrorText>{error}</ErrorText>
@@ -487,6 +573,15 @@ function QuestionCard({
           <p className="font-semibold leading-snug">
             {index + 1}. {question.text}
           </p>
+          {hasTj(question) ? (
+            <p lang="tg" className="mt-1 leading-snug text-muted">
+              {question.textTj}
+            </p>
+          ) : (
+            <span className="mt-1.5 inline-block rounded-full bg-sun-soft px-2.5 py-0.5 text-[13px] font-semibold text-[#7a4f00]">
+              Без таджикского перевода
+            </span>
+          )}
         </div>
         {confirm ? (
           <div className="flex gap-2">
@@ -517,13 +612,25 @@ function QuestionCard({
             }`}
           >
             {i === question.correct ? <CheckIcon className="mt-0.5 size-4 flex-none" /> : <span className="w-4 flex-none">{LETTERS[i]}</span>}
-            {option}
+            <span>
+              {option}
+              {question.optionsTj?.[i] && question.optionsTj[i] !== option && (
+                <span lang="tg" className="block font-normal opacity-75">
+                  {question.optionsTj[i]}
+                </span>
+              )}
+            </span>
           </li>
         ))}
       </ul>
       {question.explanation && (
         <p className="mt-2 rounded-lg bg-paper px-3 py-2 text-sm leading-relaxed text-muted">
           Пояснение: {question.explanation}
+          {question.explanationTj && (
+            <span lang="tg" className="mt-1 block">
+              {question.explanationTj}
+            </span>
+          )}
         </p>
       )}
       <p className="sr-only">
@@ -607,7 +714,8 @@ function BulkImport({
         <p>
           Каждый вопрос — отдельным блоком, между вопросами пустая строка. <b>+</b> — правильный ответ, <b>-</b> —
           неправильные, <b>!</b> — пояснение (можно не писать). Строка <b># Название</b> задаёт тему для вопросов
-          ниже; если такой темы нет, она создастся.
+          ниже; если такой темы нет, она создастся. Таджикский перевод потом можно добавить в каждом вопросе через
+          «Изменить».
         </p>
         <button type="button" className="mt-2 font-semibold text-cobalt" onClick={() => setText(BULK_EXAMPLE)}>
           Вставить пример

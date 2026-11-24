@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { CheckIcon, ClockIcon, LeaveIcon, WifiIcon, WifiOffIcon } from "@/components/icons";
 import { ErrorText, FullScreenLoader, Logo, Spinner } from "@/components/ui";
-import { api, ApiError, formatTimer, plural } from "@/lib/client";
+import { api, ApiError, formatTimer } from "@/lib/client";
+import { LangSwitch, localize, RU_TEXT, useLang } from "@/lib/i18n";
 import {
   clearCurrent,
   getCurrent,
@@ -17,7 +18,13 @@ import type { ResultPayload, RoomState, SubmitResult, TestPayload } from "@/lib/
 
 const LETTERS = ["А", "Б", "В", "Г", "Д", "Е"];
 
-type Notice = { kind: "leave" | "online" | "time"; text: string };
+// Какую подсказку показать вверху (текст берётся из словаря на выбранном языке)
+type Notice = "leave" | "online" | "finished" | "extended";
+
+// Ошибки храним по-русски, а на таджикский переводим при показе (err() из i18n.tsx)
+const RU_ERROR = RU_TEXT.error;
+const SEND_FAILED = RU_TEXT.sendFailed;
+const RE_LOGIN = RU_TEXT.reLogin;
 
 // Есть ли сейчас НАСТОЯЩИЙ интернет.
 // Одного navigator.onLine мало: на Windows он говорит «онлайн», если подключён хоть какой-то
@@ -97,6 +104,7 @@ export function TestRunner() {
   const [lobby, setLobby] = useState<RoomState | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
+  const { t, err } = useLang();
 
   // Любое изменение состояния сразу сохраняем в localStorage
   const update = useCallback((change: (state: Saved) => Saved) => {
@@ -127,8 +135,8 @@ export function TestRunner() {
 
   // Подсказка вверху экрана на 6 секунд
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const showNotice = useCallback((kind: Notice["kind"], text: string) => {
-    setNotice({ kind, text });
+  const showNotice = useCallback((kind: Notice) => {
+    setNotice(kind);
     clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(null), 6000);
   }, []);
@@ -154,7 +162,7 @@ export function TestRunner() {
         ...state,
         behaviour: { ...state.behaviour, onlineCount: state.behaviour.onlineCount + 1 },
       }));
-      showNotice("online", "Интернет включился — учитель это видит. Выключи его, пока решаешь тест.");
+      showNotice("online");
     }
     report();
   });
@@ -200,7 +208,7 @@ export function TestRunner() {
         else if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
           clearCurrent();
           window.location.replace("/join");
-        } else setError(e instanceof Error ? e.message : "Ошибка");
+        } else setError(e instanceof Error ? e.message : RU_ERROR);
       } finally {
         busy = false;
       }
@@ -234,12 +242,12 @@ export function TestRunner() {
         const { status, endsAt } = state.room;
         if (status === "finished") {
           update((s) => ({ ...s, phase: "finishing", finishedAt: Date.now(), timedOut: false }));
-          showNotice("time", "Учитель завершил тест.");
+          showNotice("finished");
         } else if (endsAt !== null && endsAt !== savedRef.current?.test?.endsAt) {
           update((s) =>
             s.test ? { ...s, test: { ...s.test, endsAt, offset: state.serverNow - Date.now() } } : s,
           );
-          showNotice("time", "Учитель добавил время.");
+          showNotice("extended");
         }
       } catch {
         // нет связи — ничего страшного, тест работает и без неё
@@ -272,7 +280,7 @@ export function TestRunner() {
           : s.behaviour,
       }));
       if (counted && !silent) {
-        showNotice("leave", "Ты уходил со страницы теста — учитель это увидит.");
+        showNotice("leave");
         report();
       }
     };
@@ -340,9 +348,9 @@ export function TestRunner() {
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         setNeedLogin(true);
-        setSubmitError("Нужно войти заново. Ответы сохранены на этом устройстве — после входа тест откроется сам.");
+        setSubmitError(RE_LOGIN);
       } else {
-        setSubmitError(e instanceof Error ? e.message : "Не получилось отправить");
+        setSubmitError(e instanceof Error ? e.message : SEND_FAILED);
       }
     } finally {
       sendingRef.current = false;
@@ -371,7 +379,7 @@ export function TestRunner() {
 
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col px-4 pb-8 pt-4 sm:px-6">
-      {saved.phase === "lobby" && <Lobby saved={saved} state={lobby} error={error} onLeave={leave} />}
+      {saved.phase === "lobby" && <Lobby saved={saved} state={lobby} error={err(error)} onLeave={leave} />}
 
       {saved.phase === "ready" && (
         <Ready
@@ -407,7 +415,7 @@ export function TestRunner() {
           saved={saved}
           online={online}
           sending={sending}
-          error={submitError}
+          error={err(submitError)}
           needLogin={needLogin}
           onSend={submit}
         />
@@ -417,10 +425,13 @@ export function TestRunner() {
 
       {saved.phase === "closed" && (
         <Centered>
-          <h1 className="font-display text-2xl font-bold">Тест уже завершён</h1>
-          <p className="mt-3 text-lg text-muted">Этот тест закончился раньше, чем ты успел его скачать.</p>
+          <div className="mb-6">
+            <LangSwitch />
+          </div>
+          <h1 className="font-display text-2xl font-bold">{t.closed}</h1>
+          <p className="mt-3 text-lg text-muted">{t.closedText}</p>
           <button className="btn btn-primary mt-8 w-full" onClick={leave}>
-            Ввести другой код
+            {t.otherCode}
           </button>
         </Centered>
       )}
@@ -433,6 +444,7 @@ function Centered({ children }: { children: ReactNode }) {
 }
 
 function OnlineChip({ online, warn = false }: { online: boolean; warn?: boolean }) {
+  const { t } = useLang();
   if (online) {
     return (
       <span
@@ -440,19 +452,20 @@ function OnlineChip({ online, warn = false }: { online: boolean; warn?: boolean 
           warn ? "bg-red-soft text-red-edge" : "bg-sun-soft text-[#8a5a00]"
         }`}
       >
-        <WifiIcon className="size-4" /> Интернет включён
+        <WifiIcon className="size-4" /> {t.online}
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-green-soft px-3 py-1.5 text-sm font-semibold text-green-edge">
-      <WifiOffIcon className="size-4" /> Интернет выключен
+      <WifiOffIcon className="size-4" /> {t.offline}
     </span>
   );
 }
 
 function Timer({ remaining }: { remaining: number }) {
   const urgent = remaining < 60_000;
+  const { t } = useLang();
   return (
     <span
       role="timer"
@@ -461,7 +474,7 @@ function Timer({ remaining }: { remaining: number }) {
       }`}
     >
       <ClockIcon className="size-4" />
-      <span className="sr-only">Осталось</span>
+      <span className="sr-only">{t.timeLeft}</span>
       {formatTimer(remaining)}
     </span>
   );
@@ -478,13 +491,17 @@ function Lobby({
   error: string;
   onLeave: () => void;
 }) {
+  const { t } = useLang();
   return (
     <>
-      <header className="flex items-center justify-between">
-        <Logo />
-        <button className="text-[15px] font-semibold text-muted hover:text-ink" onClick={onLeave}>
-          Выйти из комнаты
-        </button>
+      <header className="flex items-center justify-between gap-2">
+        <Logo compact />
+        <div className="flex items-center gap-3">
+          <LangSwitch />
+          <button className="whitespace-nowrap text-[15px] font-semibold text-muted hover:text-ink" onClick={onLeave}>
+            {t.leaveRoom}
+          </button>
+        </div>
       </header>
       <Centered>
         <div className="flex gap-3 text-[34px]" aria-hidden>
@@ -498,16 +515,14 @@ function Lobby({
             </span>
           ))}
         </div>
-        <p className="mt-8 text-lg text-muted">{saved.name}, ты в комнате</p>
+        <p className="mt-8 text-lg text-muted">{t.youAreIn(saved.name)}</p>
         <h1 className="mt-1 font-display text-[26px] font-bold leading-tight">{state?.room.title ?? saved.title}</h1>
-        <p className="mt-5 text-lg leading-relaxed">
-          Ждём, когда учитель начнёт тест. Не закрывай эту страницу и пока не выключай интернет.
-        </p>
+        <p className="mt-5 text-lg leading-relaxed">{t.waiting}</p>
         {state && (
           <dl className="mt-6 grid grid-cols-3 gap-2 text-center">
-            <Stat value={state.room.questionCount} label={plural(state.room.questionCount, ["вопрос", "вопроса", "вопросов"])} />
-            <Stat value={state.room.durationMin} label={plural(state.room.durationMin, ["минута", "минуты", "минут"])} />
-            <Stat value={state.joinedCount} label={plural(state.joinedCount, ["ученик", "ученика", "учеников"]) + " здесь"} />
+            <Stat value={state.room.questionCount} label={t.questionsWord(state.room.questionCount)} />
+            <Stat value={state.room.durationMin} label={t.minutesWord(state.room.durationMin)} />
+            <Stat value={state.joinedCount} label={t.studentsHere(state.joinedCount)} />
           </dl>
         )}
         <div className="mt-6">
@@ -542,42 +557,47 @@ function Ready({
   const [withInternet, setWithInternet] = useState(false);
   const count = saved.test?.questions.length ?? 0;
   const resumed = saved.startedAt !== null; // вернулся после продления времени
+  const { t } = useLang();
   return (
     <>
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-2">
         <Timer remaining={remaining} />
         <OnlineChip online={online} />
       </header>
       <Centered>
+        <div className="mb-6">
+          <LangSwitch />
+        </div>
         <span className="grid size-14 place-items-center rounded-2xl bg-green text-white shadow-[0_4px_0_var(--color-green-edge)]">
           <CheckIcon className="size-8" />
         </span>
         {resumed ? (
           <>
-            <h1 className="mt-6 font-display text-[26px] font-bold leading-tight">Учитель добавил время</h1>
+            <h1 className="mt-6 font-display text-[26px] font-bold leading-tight">{t.extended}</h1>
             <p className="mt-3 text-lg leading-relaxed">
-              Твои ответы сохранены, тест можно продолжить. Снова <b>выключи интернет</b> и нажми «Продолжить».
+              {t.extendedText}
+              <b>{t.turnOff}</b>
+              {t.extendedText2}
             </p>
           </>
         ) : (
           <>
-            <h1 className="mt-6 font-display text-[26px] font-bold leading-tight">Тест загружен</h1>
+            <h1 className="mt-6 font-display text-[26px] font-bold leading-tight">{t.loaded}</h1>
             <p className="mt-3 text-lg leading-relaxed">
-              {count} {plural(count, ["вопрос", "вопроса", "вопросов"])} уже на твоём устройстве. Теперь{" "}
-              <b>выключи интернет</b>: Wi-Fi и мобильные данные. Тест будет работать без него.
+              {t.loadedText(count)}
+              <b>{t.turnOff}</b>
+              {t.loadedText2}
             </p>
           </>
         )}
-        <p className="mt-3 leading-relaxed text-muted">
-          Если во время теста интернет включится или ты уйдёшь со страницы, учитель это увидит. Время уже идёт.
-        </p>
+        <p className="mt-3 leading-relaxed text-muted">{t.watched}</p>
 
         <div className="mt-7">
           <button className="btn btn-primary w-full text-lg" disabled={online} onClick={() => onStart(false)}>
-            {resumed ? "Продолжить тест" : "Начать тест"}
+            {resumed ? t.resume : t.start}
           </button>
           {online && (
-            <p className="mt-3 text-center text-[15px] text-muted">Кнопка заработает, когда интернет выключится</p>
+            <p className="mt-3 text-center text-[15px] text-muted">{t.startHint}</p>
           )}
         </div>
 
@@ -585,15 +605,13 @@ function Ready({
           <div className="mt-8 border-t border-line pt-5">
             {!withInternet ? (
               <button className="text-[15px] font-semibold text-muted underline underline-offset-4" onClick={() => setWithInternet(true)}>
-                Не получается выключить интернет
+                {t.cantTurnOff}
               </button>
             ) : (
               <div>
-                <p className="leading-relaxed">
-                  Можно начать и с интернетом, но учитель увидит отметку «решал с интернетом».
-                </p>
+                <p className="leading-relaxed">{t.withInternetText}</p>
                 <button className="btn btn-soft mt-3 w-full" onClick={() => onStart(true)}>
-                  Начать с включённым интернетом
+                  {t.startWithInternet}
                 </button>
               </div>
             )}
@@ -630,6 +648,8 @@ function Questions({
   const optionOrder = saved.optionOrder[question.n] ?? question.options.map((_, i) => i);
   const answeredCount = Object.keys(saved.answers).length;
   const chosen = saved.answers[question.n];
+  const { lang, t } = useLang();
+  const shown = localize(question, lang);
 
   // Новый вопрос — показываем его с начала (на телефоне кнопка «Далее» внизу экрана)
   useEffect(() => {
@@ -654,22 +674,32 @@ function Questions({
 
       {notice && (
         <p role="status" className="mt-3 flex items-start gap-2 rounded-xl bg-sun-soft px-3.5 py-2.5 text-[15px] font-medium text-[#7a4f00]">
-          {notice.kind === "online" ? (
+          {notice === "online" ? (
             <WifiIcon className="mt-0.5 size-4 flex-none" />
-          ) : notice.kind === "time" ? (
-            <ClockIcon className="mt-0.5 size-4 flex-none" />
-          ) : (
+          ) : notice === "leave" ? (
             <LeaveIcon className="mt-0.5 size-4 flex-none" />
+          ) : (
+            <ClockIcon className="mt-0.5 size-4 flex-none" />
           )}{" "}
-          {notice.text}
+          {notice === "online"
+            ? t.noticeOnline
+            : notice === "leave"
+              ? t.noticeLeave
+              : notice === "finished"
+                ? t.noticeFinished
+                : t.noticeExtended}
         </p>
       )}
 
       <section className="mt-5 flex-1">
-        <p className="text-[15px] font-semibold text-muted">
-          Вопрос {index + 1} из {total}
-        </p>
-        <h1 className="mt-2 text-[22px] font-semibold leading-snug">{question.text}</h1>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[15px] font-semibold text-muted">{t.questionOf(index + 1, total)}</p>
+          <LangSwitch />
+        </div>
+        <h1 lang={shown.htmlLang} className="mt-2 text-[22px] font-semibold leading-snug">
+          {shown.text}
+        </h1>
+        {lang === "tj" && !shown.translated && <p className="mt-1 text-sm text-muted">{t.noTranslation}</p>}
 
         <div className="mt-5 space-y-3">
           {optionOrder.map((optionIndex, position) => (
@@ -680,31 +710,31 @@ function Questions({
               onClick={() => onAnswer(question.n, optionIndex)}
             >
               <span className="option-letter">{LETTERS[position]}</span>
-              <span className="text-[17px] leading-snug">{question.options[optionIndex]}</span>
+              <span lang={shown.htmlLang} className="text-[17px] leading-snug">
+                {shown.options[optionIndex]}
+              </span>
             </button>
           ))}
         </div>
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <button className="btn btn-soft" disabled={index === 0} onClick={() => onGo(index - 1)}>
-            Назад
+            {t.back}
           </button>
           {index < total - 1 ? (
             <button className="btn btn-primary" onClick={() => onGo(index + 1)}>
-              Далее
+              {t.next}
             </button>
           ) : (
             <button className="btn btn-green" onClick={() => setConfirming(true)}>
-              Завершить
+              {t.finish}
             </button>
           )}
         </div>
       </section>
 
-      <nav className="mt-8" aria-label="Все вопросы">
-        <p className="mb-2 text-sm font-semibold text-muted">
-          Отвечено {answeredCount} из {total}
-        </p>
+      <nav className="mt-8" aria-label={t.allQuestions}>
+        <p className="mb-2 text-sm font-semibold text-muted">{t.answered(answeredCount, total)}</p>
         <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-10">
           {saved.order.map((questionIndex, position) => {
             const done = saved.answers[questions[questionIndex].n] !== undefined;
@@ -714,7 +744,7 @@ function Questions({
                 key={position}
                 onClick={() => onGo(position)}
                 aria-current={active ? "step" : undefined}
-                aria-label={`Вопрос ${position + 1}${done ? ", есть ответ" : ""}`}
+                aria-label={t.questionAria(position + 1, done)}
                 className={`h-9 rounded-lg font-display text-[13px] font-bold transition ${
                   done
                     ? "bg-cobalt text-white shadow-[0_3px_0_var(--color-cobalt-edge)]"
@@ -728,22 +758,20 @@ function Questions({
         </div>
         {!confirming ? (
           <button className="btn btn-soft mt-6 w-full" onClick={() => setConfirming(true)}>
-            Завершить тест
+            {t.finishTest}
           </button>
         ) : (
           <div ref={confirmRef} className="panel mt-6 p-4">
             <p className="text-[17px] font-semibold">
-              {answeredCount < total
-                ? `Ты ответил на ${answeredCount} из ${total}. Точно завершить?`
-                : "Все ответы готовы. Завершить тест?"}
+              {answeredCount < total ? t.confirmPartial(answeredCount, total) : t.confirmAll}
             </p>
-            <p className="mt-1 text-muted">После этого ответы изменить нельзя.</p>
+            <p className="mt-1 text-muted">{t.noChanges}</p>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <button className="btn btn-soft" onClick={() => setConfirming(false)}>
-                Вернуться
+                {t.return}
               </button>
               <button className="btn btn-green" onClick={onFinish}>
-                Завершить
+                {t.finish}
               </button>
             </div>
           </div>
@@ -769,42 +797,52 @@ function Finishing({
   onSend: () => void;
 }) {
   const answered = Object.keys(saved.answers).length;
+  const { t } = useLang();
   return (
     <Centered>
-      <h1 className="font-display text-[26px] font-bold leading-tight">Тест завершён</h1>
+      <div className="mb-6">
+        <LangSwitch />
+      </div>
+      <h1 className="font-display text-[26px] font-bold leading-tight">{t.finished}</h1>
       <p className="mt-3 text-lg leading-relaxed">
-        Ответы сохранены на этом устройстве ({answered} из {saved.test?.questions.length ?? 0}).{" "}
-        {online ? "Отправляем их учителю…" : <><b>Включи интернет</b>, чтобы отправить их учителю.</>}
+        {t.savedHere(answered, saved.test?.questions.length ?? 0)}{" "}
+        {online ? (
+          t.sendingToTeacher
+        ) : (
+          <>
+            <b>{t.turnOn}</b>
+            {t.turnOnRest}
+          </>
+        )}
       </p>
       <div className="mt-6">
         <OnlineChip online={online} />
       </div>
       {needLogin && online ? (
         <a href="/login" className="btn btn-primary mt-8 w-full text-lg">
-          Войти заново
+          {t.signInAgain}
         </a>
       ) : (
         <button className="btn btn-primary mt-8 w-full text-lg" disabled={!online || sending} onClick={onSend}>
           {sending ? <Spinner /> : null}
-          {sending ? "Отправляем…" : "Отправить ответы"}
+          {sending ? t.sending : t.send}
         </button>
       )}
       <div className="mt-4">
         <ErrorText>{online ? error : ""}</ErrorText>
       </div>
-      <p className="mt-6 text-[15px] text-muted">
-        Не закрывай страницу. Если закроешь — ответы не пропадут, просто открой тест снова.
-      </p>
+      <p className="mt-6 text-[15px] text-muted">{t.dontClose}</p>
     </Centered>
   );
 }
 
+// Номер похвалы в словаре: 0 — идеально … 4 — надо повторить
 function verdict(part: number) {
-  if (part === 1) return "Идеально! Все ответы верные.";
-  if (part >= 0.8) return "Отлично! Почти всё верно.";
-  if (part >= 0.6) return "Хорошо! Есть что повторить.";
-  if (part >= 0.4) return "Неплохо, но темы стоит повторить.";
-  return "Не сдавайся: повтори уроки и попробуй снова.";
+  if (part === 1) return 0;
+  if (part >= 0.8) return 1;
+  if (part >= 0.6) return 2;
+  if (part >= 0.4) return 3;
+  return 4;
 }
 
 function Result({ saved, online, onLeave }: { saved: Saved; online: boolean; onLeave: () => void }) {
@@ -812,6 +850,7 @@ function Result({ saved, online, onLeave }: { saved: Saved; online: boolean; onL
   const score = saved.result?.score ?? 0;
   const total = saved.result?.total ?? 0;
   const hasReview = Boolean(result?.review);
+  const { lang, t } = useLang();
 
   // Пока есть интернет, каждые 5 секунд узнаём, открыл ли учитель разбор ошибок
   useEffect(() => {
@@ -833,41 +872,50 @@ function Result({ saved, online, onLeave }: { saved: Saved; online: boolean; onL
 
   return (
     <div className="py-6">
-      <header className="flex items-center justify-between">
-        <Logo />
-        <button className="text-[15px] font-semibold text-muted hover:text-ink" onClick={onLeave}>
-          Выйти
-        </button>
+      <header className="flex items-center justify-between gap-2">
+        <Logo compact />
+        <div className="flex items-center gap-3">
+          <LangSwitch />
+          <button className="whitespace-nowrap text-[15px] font-semibold text-muted hover:text-ink" onClick={onLeave}>
+            {t.logout}
+          </button>
+        </div>
       </header>
 
       <section className="mt-10">
-        <p className="text-lg text-muted">Твой результат</p>
+        <p className="text-lg text-muted">{t.yourResult}</p>
         <p className="mt-2 font-display text-[64px] font-bold leading-none text-cobalt">
           {score}
-          <span className="text-[32px] text-muted"> из {total}</span>
+          <span className="text-[32px] text-muted">
+            {" "}
+            {t.of} {total}
+          </span>
         </p>
-        <p className="mt-4 text-xl font-semibold">{verdict(total ? score / total : 0)}</p>
-        <p className="mt-2 text-muted">Результат уже у учителя.</p>
+        <p className="mt-4 text-xl font-semibold">{t.verdicts[verdict(total ? score / total : 0)]}</p>
+        <p className="mt-2 text-muted">{t.resultSent}</p>
       </section>
 
       <section className="mt-10 border-t border-line pt-6">
-        <h2 className="font-display text-lg font-bold">Разбор ошибок</h2>
+        <h2 className="font-display text-lg font-bold">{t.review}</h2>
         {result?.review ? (
           <ol className="mt-4 space-y-3">
             {result.review.map((item, index) => {
               const ok = item.chosen === item.correct;
+              const shown = localize(item, lang);
               return (
                 <li key={item.n} className={`rounded-2xl border-2 bg-white p-4 ${ok ? "border-green-soft" : "border-red-soft"}`}>
                   <p className="text-sm font-semibold text-muted">
-                    {index + 1}. {item.topic}
+                    {index + 1}. {shown.topic}
                   </p>
-                  <p className="mt-1 font-semibold leading-snug">{item.text}</p>
-                  <p className={`mt-2 text-[15px] ${ok ? "text-green-edge" : "text-red-edge"}`}>
-                    {item.chosen === null ? "Нет ответа" : `Твой ответ: ${item.options[item.chosen]}`}
-                  </p>
-                  {!ok && <p className="text-[15px] text-green-edge">Правильно: {item.options[item.correct]}</p>}
-                  {item.explanation && (
-                    <p className="mt-2 rounded-lg bg-paper px-3 py-2 text-[15px] leading-relaxed">{item.explanation}</p>
+                  <div lang={shown.htmlLang}>
+                    <p className="mt-1 font-semibold leading-snug">{shown.text}</p>
+                    <p className={`mt-2 text-[15px] ${ok ? "text-green-edge" : "text-red-edge"}`}>
+                      {item.chosen === null ? t.noAnswer : t.yourAnswer(shown.options[item.chosen])}
+                    </p>
+                    {!ok && <p className="text-[15px] text-green-edge">{t.rightAnswer(shown.options[item.correct])}</p>}
+                  </div>
+                  {shown.explanation && (
+                    <p className="mt-2 rounded-lg bg-paper px-3 py-2 text-[15px] leading-relaxed">{shown.explanation}</p>
                   )}
                 </li>
               );
@@ -875,11 +923,8 @@ function Result({ saved, online, onLeave }: { saved: Saved; online: boolean; onL
           </ol>
         ) : (
           <div className="mt-3">
-            <p className="leading-relaxed text-muted">
-              Разбор появится здесь сам, когда учитель завершит тест для всех: так никто не сможет подсказать ответы
-              остальным.
-            </p>
-            {!online && <p className="mt-2 leading-relaxed text-muted">Включи интернет, чтобы его увидеть.</p>}
+            <p className="leading-relaxed text-muted">{t.reviewLater}</p>
+            {!online && <p className="mt-2 leading-relaxed text-muted">{t.reviewOffline}</p>}
           </div>
         )}
       </section>

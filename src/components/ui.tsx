@@ -14,7 +14,16 @@ export function Keycaps({ value, className = "" }: { value: string; className?: 
 }
 
 // Логотип: две клавиши «I» и «T»
-export function Logo({ light = false, label = "Викторина" }: { light?: boolean; label?: string }) {
+// compact — на узких телефонах прячем слово, остаются только клавиши «IT»
+export function Logo({
+  light = false,
+  label = "Викторина",
+  compact = false,
+}: {
+  light?: boolean;
+  label?: string;
+  compact?: boolean;
+}) {
   return (
     <span className="inline-flex items-center gap-2.5">
       <span className="flex gap-1 text-[13px]">
@@ -25,7 +34,13 @@ export function Logo({ light = false, label = "Викторина" }: { light?: 
           T
         </span>
       </span>
-      <span className={`font-display text-[15px] font-semibold ${light ? "text-white" : "text-ink"}`}>{label}</span>
+      <span
+        className={`font-display text-[15px] font-semibold ${light ? "text-white" : "text-ink"} ${
+          compact ? "max-[440px]:hidden" : ""
+        }`}
+      >
+        {label}
+      </span>
     </span>
   );
 }
