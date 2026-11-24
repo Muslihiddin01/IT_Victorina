@@ -370,6 +370,44 @@ function Editor({
   const [draft, setDraft] = useState(initial);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [translated, setTranslated] = useState(false);
+
+  // Что можно перевести: русское поле заполнено, а таджикское ещё пустое.
+  // То, что учитель уже перевёл или поправил сам, не трогаем.
+  const toTranslate = [
+    { ru: draft.text, tj: draft.textTj, key: "text" as const, index: -1 },
+    ...draft.options.map((ru, index) => ({ ru, tj: draft.optionsTj[index] ?? "", key: "option" as const, index })),
+    { ru: draft.explanation, tj: draft.explanationTj, key: "explanation" as const, index: -1 },
+  ].filter((field) => field.ru.trim() && !field.tj.trim());
+
+  async function autoTranslate() {
+    if (toTranslate.length === 0) return;
+    setTranslating(true);
+    setError("");
+    try {
+      const { translations } = await api<{ translations: string[] }>("/api/admin/translate", {
+        method: "POST",
+        body: { texts: toTranslate.map((field) => field.ru) },
+      });
+      // Берём свежий черновик: пока шёл перевод, учитель мог что-то дописать
+      setDraft((current) => {
+        const next = { ...current, optionsTj: [...current.optionsTj] };
+        toTranslate.forEach((field, i) => {
+          const value = translations[i] ?? "";
+          if (field.key === "text" && !next.textTj.trim()) next.textTj = value;
+          if (field.key === "explanation" && !next.explanationTj.trim()) next.explanationTj = value;
+          if (field.key === "option" && !next.optionsTj[field.index]?.trim()) next.optionsTj[field.index] = value;
+        });
+        return next;
+      });
+      setTranslated(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось перевести");
+    } finally {
+      setTranslating(false);
+    }
+  }
 
   const setOption = (index: number, value: string) =>
     setDraft({ ...draft, options: draft.options.map((option, i) => (i === index ? value : option)) });
@@ -410,7 +448,23 @@ function Editor({
 
   return (
     <form onSubmit={save} className="panel space-y-4 border-cobalt p-5 shadow-[0_4px_0_var(--color-cobalt-soft)]">
-      <h3 className="font-display text-lg font-bold">{draft.id ? "Изменить вопрос" : "Новый вопрос"}</h3>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-display text-lg font-bold">{draft.id ? "Изменить вопрос" : "Новый вопрос"}</h3>
+        <button
+          type="button"
+          className="btn btn-soft btn-sm"
+          disabled={translating || toTranslate.length === 0}
+          title={toTranslate.length === 0 ? "Пустых таджикских полей нет" : "Заполнит пустые таджикские поля"}
+          onClick={autoTranslate}
+        >
+          {translating ? <Spinner /> : null} Перевести на таджикский
+        </button>
+      </div>
+      {translated && (
+        <p role="status" className="rounded-xl bg-sun-soft px-3.5 py-2.5 text-[15px] font-medium text-[#7a4f00]">
+          Перевод сделан автоматически — проверьте его перед сохранением: машина может ошибиться в терминах.
+        </p>
+      )}
       <div>
         <label className="label" htmlFor="q-topic">
           Тема
