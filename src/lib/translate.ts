@@ -71,7 +71,9 @@ async function translateOne(text: string): Promise<string> {
   const clean = text.trim();
   if (!/[а-яё]/i.test(clean)) return clean;
   const parts = await Promise.all(chunks(clean).map(translateChunk));
-  return parts.join(" ");
+  const result = parts.join(" ");
+  // Сервис иногда дописывает точку («Дата рождения» → «Рӯзи таваллуд.») — в вариантах она лишняя
+  return /[.…]$/.test(clean) ? result : result.replace(/\.$/, "");
 }
 
 export async function translateToTajik(texts: string[]): Promise<string[]> {

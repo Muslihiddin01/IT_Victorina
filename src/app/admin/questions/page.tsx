@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { CheckIcon, PlusIcon, TrashIcon } from "@/components/icons";
 import { ErrorText, Spinner } from "@/components/ui";
-import { api, plural } from "@/lib/client";
+import { api, ApiError, plural } from "@/lib/client";
 import { parseQuestions } from "@/lib/question-text";
 import type { Question, Topic } from "@/lib/types";
 
@@ -30,6 +30,10 @@ export default function QuestionsPage() {
   const [questions, setQuestions] = useState<Question[] | null>(null);
   const [topicId, setTopicId] = useState<number | null>(null); // null — все темы
   const [onlyUntranslated, setOnlyUntranslated] = useState(false);
+  // Вопросы, которые только что перевела машина: их стоит просмотреть
+  const [recentIds, setRecentIds] = useState<string[]>([]);
+  const [onlyRecent, setOnlyRecent] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState("");
 
@@ -50,12 +54,93 @@ export default function QuestionsPage() {
 
   const inTopic = (questions ?? []).filter((q) => topicId === null || q.topicId === topicId);
   const untranslated = inTopic.filter((q) => !hasTj(q)).length;
-  const visible = onlyUntranslated ? inTopic.filter((q) => !hasTj(q)) : inTopic;
+  const visible = onlyRecent
+    ? inTopic.filter((q) => recentIds.includes(q.id))
+    : onlyUntranslated
+      ? inTopic.filter((q) => !hasTj(q))
+      : inTopic;
   const topicTitle = (id: number) => topics.find((t) => t.id === id)?.title ?? "";
   const selectedTopic = topics.find((t) => t.id === topicId) ?? null;
 
   const [bulk, setBulk] = useState(false);
   const [notice, setNotice] = useState("");
+
+  // Перевести автоматически все вопросы без перевода (в выбранной теме или во всех).
+  // По одному: перевели → сохранили. Если закончится дневной лимит — остановимся,
+  // уже переведённое сохранится, остальное можно перевести завтра.
+  async function translateAll() {
+    const list = inTopic.filter((q) => !hasTj(q));
+    if (list.length === 0) return;
+    setError("");
+    setNotice("");
+    setDraft(null);
+    setBulk(false);
+    setProgress({ done: 0, total: list.length });
+    const done: string[] = [];
+    let skipped = 0;
+    let stopReason = "";
+
+    for (const question of list) {
+      try {
+        const texts = [question.text, ...question.options, question.explanation ?? ""];
+        const { translations } = await api<{ translations: string[] }>("/api/admin/translate", {
+          method: "POST",
+          body: { texts },
+        });
+        const optionsTj = translations.slice(1, 1 + question.options.length);
+        await api(`/api/admin/questions/${question.id}`, {
+          method: "PUT",
+          body: {
+            topicId: question.topicId,
+            text: question.text,
+            options: question.options,
+            correct: question.correct,
+            explanation: question.explanation ?? "",
+            textTj: translations[0],
+            optionsTj,
+            explanationTj: question.explanation ? (translations[1 + question.options.length] ?? "") : "",
+          },
+        });
+        done.push(question.id);
+      } catch (e) {
+        // 429 — лимит на сегодня, 502 — сервис не отвечает: дальше пробовать бессмысленно
+        if (e instanceof ApiError && (e.status === 429 || e.status === 502 || e.status === 0)) {
+          stopReason = e.message;
+          break;
+        }
+        skipped++; // например, машина перевела два варианта одинаково — такой вопрос переведёте вручную
+      }
+      setProgress({ done: done.length + skipped, total: list.length });
+    }
+
+    // Названия тем без перевода — заодно
+    for (const topic of topics.filter((t) => !t.titleTj && (topicId === null || t.id === topicId))) {
+      if (stopReason) break;
+      try {
+        const { translations } = await api<{ translations: string[] }>("/api/admin/translate", {
+          method: "POST",
+          body: { texts: [topic.title] },
+        });
+        await api(`/api/admin/topics/${topic.id}`, {
+          method: "PATCH",
+          body: { title: topic.title, titleTj: translations[0] },
+        });
+      } catch (e) {
+        if (e instanceof ApiError && (e.status === 429 || e.status === 502 || e.status === 0)) stopReason = e.message;
+      }
+    }
+
+    setProgress(null);
+    setRecentIds(done);
+    setOnlyUntranslated(false);
+    setOnlyRecent(done.length > 0);
+    await load();
+    const parts = [`Переведено ${done.length} ${plural(done.length, ["вопрос", "вопроса", "вопросов"])}.`];
+    if (skipped) parts.push(`Не получилось: ${skipped} — их переведите вручную через «Изменить».`);
+    if (stopReason) parts.push(`Остановились: ${stopReason}`);
+    if (done.length) parts.push("Ниже — только что переведённые: просмотрите их, машина может ошибиться в терминах.");
+    setNotice(parts.join(" "));
+  }
 
   function newDraft() {
     setBulk(false);
@@ -129,11 +214,46 @@ export default function QuestionsPage() {
             </button>
           </div>
         </div>
-        {questions && (untranslated > 0 || onlyUntranslated) && (
-          <label className="flex w-fit cursor-pointer items-center gap-2 rounded-full bg-sun-soft px-3 py-1.5 text-sm font-semibold text-[#7a4f00]">
-            <input type="checkbox" checked={onlyUntranslated} onChange={(e) => setOnlyUntranslated(e.target.checked)} />
-            Только без таджикского перевода: {untranslated}
-          </label>
+        {questions && (untranslated > 0 || onlyUntranslated || recentIds.length > 0) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {(untranslated > 0 || onlyUntranslated) && (
+              <label className="flex w-fit cursor-pointer items-center gap-2 rounded-full bg-sun-soft px-3 py-1.5 text-sm font-semibold text-[#7a4f00]">
+                <input
+                  type="checkbox"
+                  checked={onlyUntranslated}
+                  onChange={(e) => {
+                    setOnlyUntranslated(e.target.checked);
+                    setOnlyRecent(false);
+                  }}
+                />
+                Только без таджикского перевода: {untranslated}
+              </label>
+            )}
+            {untranslated > 0 && (
+              <button className="btn btn-soft btn-sm" disabled={progress !== null} onClick={translateAll}>
+                {progress ? (
+                  <>
+                    <Spinner /> Переводим… {progress.done} из {progress.total}
+                  </>
+                ) : (
+                  <>Перевести автоматически: {untranslated}</>
+                )}
+              </button>
+            )}
+            {recentIds.length > 0 && (
+              <label className="flex w-fit cursor-pointer items-center gap-2 rounded-full bg-cobalt-soft px-3 py-1.5 text-sm font-semibold text-cobalt">
+                <input
+                  type="checkbox"
+                  checked={onlyRecent}
+                  onChange={(e) => {
+                    setOnlyRecent(e.target.checked);
+                    setOnlyUntranslated(false);
+                  }}
+                />
+                Только что переведённые: {recentIds.length}
+              </label>
+            )}
+          </div>
         )}
         <ErrorText>{error}</ErrorText>
         {notice && (
@@ -172,7 +292,9 @@ export default function QuestionsPage() {
         {!questions ? (
           <Spinner className="size-6 text-cobalt" />
         ) : visible.length === 0 ? (
-          <p className="text-muted">{onlyUntranslated ? "Все вопросы здесь переведены." : "В этой теме пока нет вопросов."}</p>
+          <p className="text-muted">
+            {onlyUntranslated ? "Все вопросы здесь переведены." : onlyRecent ? "В этой теме ничего не переводилось." : "В этой теме пока нет вопросов."}
+          </p>
         ) : (
           <ol className="space-y-3">
             {visible.map((question, index) => (
