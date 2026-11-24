@@ -247,9 +247,7 @@ function RoomScreen({ id }: { id: string }) {
                 <PlusIcon className="size-4" /> Такая же комната
               </button>
             )}
-            <a className="btn btn-soft btn-sm" href={`/api/admin/rooms/${room.id}/export`} download>
-              <DownloadIcon className="size-4" /> Скачать результаты (Excel)
-            </a>
+            <ExportButton roomId={room.id} />
             {confirm === "delete" ? (
               <>
                 <button className="btn btn-soft btn-sm" onClick={() => setConfirm(null)}>
@@ -547,5 +545,89 @@ function Flag({ tone, icon, children }: { tone: "red" | "sun"; icon: ReactNode; 
       {icon}
       {children}
     </span>
+  );
+}
+
+// Пороги оценок для Excel: «5» от 85 %, «4» от 70 %, «3» от 50 %.
+// Запоминаются в этом браузере; в самом файле их тоже можно поменять — оценки пересчитаются.
+type Grades = { g5: number; g4: number; g3: number };
+const GRADES_KEY = "quiz:grades";
+const DEFAULT_GRADES: Grades = { g5: 85, g4: 70, g3: 50 };
+const validGrades = (g: Grades) =>
+  [g.g5, g.g4, g.g3].every((n) => Number.isInteger(n) && n >= 1 && n <= 100) && g.g5 > g.g4 && g.g4 > g.g3;
+
+function ExportButton({ roomId }: { roomId: string }) {
+  const [grades, setGrades] = useState<Grades>(DEFAULT_GRADES);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(GRADES_KEY) ?? "null") as Grades | null;
+      // localStorage есть только в браузере, поэтому читаем его после первой отрисовки
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved && validGrades(saved)) setGrades(saved);
+    } catch {}
+  }, []);
+
+  const change = (key: keyof Grades, value: string) => {
+    const next = { ...grades, [key]: Number(value.replace(/\D/g, "").slice(0, 3)) };
+    setGrades(next);
+    if (validGrades(next)) {
+      try {
+        localStorage.setItem(GRADES_KEY, JSON.stringify(next));
+      } catch {}
+    }
+  };
+  const ok = validGrades(grades);
+  const href = `/api/admin/rooms/${roomId}/export?${new URLSearchParams({
+    g5: String(grades.g5),
+    g4: String(grades.g4),
+    g3: String(grades.g3),
+  })}`;
+
+  return (
+    <div className="relative">
+      <div className="flex">
+        <a
+          className={`btn btn-soft btn-sm rounded-r-none ${ok ? "" : "pointer-events-none opacity-50"}`}
+          href={href}
+          download
+          aria-disabled={!ok}
+        >
+          <DownloadIcon className="size-4" /> Скачать результаты (Excel)
+        </a>
+        <button
+          className="btn btn-soft btn-sm rounded-l-none border-l border-line !px-3"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          Оценки: {grades.g5}/{grades.g4}/{grades.g3}%
+        </button>
+      </div>
+      {open && (
+        <div className="absolute right-0 z-20 mt-2 w-72 rounded-2xl border-[1.5px] border-line bg-white p-4 shadow-[0_6px_0_var(--color-line)]">
+          <p className="text-sm font-semibold">С какого процента ставить оценку</p>
+          <div className="mt-3 space-y-2">
+            {(["g5", "g4", "g3"] as const).map((key) => (
+              <label key={key} className="flex items-center gap-3 text-[15px]">
+                <span className="w-16 font-display font-bold">«{key.slice(1)}» от</span>
+                <input
+                  className="input !w-20 !py-1.5 text-center"
+                  inputMode="numeric"
+                  value={grades[key] || ""}
+                  onChange={(e) => change(key, e.target.value)}
+                />
+                %
+              </label>
+            ))}
+            <p className="text-[15px] text-muted">«2» — ниже порога «3»</p>
+          </div>
+          {!ok && <p className="mt-2 text-sm font-medium text-red-edge">Пороги должны идти по убыванию: 5 &gt; 4 &gt; 3</p>}
+          <p className="mt-3 text-sm leading-relaxed text-muted">
+            В файле пороги стоят в жёлтых ячейках: их можно поменять прямо в Excel — оценки пересчитаются.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }

@@ -185,6 +185,39 @@ body {
     color: #fff;
   }
 
+  /* Тренировка: после ответа показываем правильный (зелёный) и ошибку (красный) */
+  .option[data-state="right"] {
+    background: var(--color-green-soft);
+    border-color: var(--color-green);
+    box-shadow: 0 4px 0 var(--color-green-edge);
+  }
+  .option[data-state="right"] .option-letter {
+    background: var(--color-green);
+    color: #fff;
+  }
+  .option[data-state="wrong"] {
+    background: var(--color-red-soft);
+    border-color: var(--color-red);
+    box-shadow: 0 4px 0 var(--color-red-edge);
+  }
+  .option[data-state="wrong"] .option-letter {
+    background: var(--color-red);
+    color: #fff;
+  }
+  .option:disabled {
+    cursor: default;
+  }
+  .option:disabled:active {
+    transform: none;
+    box-shadow: 0 4px 0 var(--color-line);
+  }
+  .option[data-state="right"]:disabled:active {
+    box-shadow: 0 4px 0 var(--color-green-edge);
+  }
+  .option[data-state="wrong"]:disabled:active {
+    box-shadow: 0 4px 0 var(--color-red-edge);
+  }
+
   /* Большая клавиша с цифрой кода комнаты */
   .keycap {
     display: grid;

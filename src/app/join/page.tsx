@@ -2,11 +2,11 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 
-import { ErrorText, FullScreenLoader, Logo, Spinner } from "@/components/ui";
+import { StudentHeader } from "@/components/student-header";
+import { ErrorText, FullScreenLoader, Spinner } from "@/components/ui";
 import { api } from "@/lib/client";
-import { LangSwitch, RU_TEXT, useLang } from "@/lib/i18n";
+import { RU_TEXT, useLang } from "@/lib/i18n";
 import {
-  clearCurrent,
   savePendingCode,
   setCurrent,
   takePendingCode,
@@ -76,27 +76,11 @@ export default function JoinPage() {
     }
   }
 
-  async function logout() {
-    // На общем компьютере следующий ученик не должен попасть в чужой тест.
-    // Сами ответы остаются на устройстве и найдутся, когда этот ученик войдёт снова.
-    clearCurrent();
-    await api("/api/auth/logout", { method: "POST" }).catch(() => {});
-    window.location.assign("/login");
-  }
-
   if (!me && !error) return <FullScreenLoader />;
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col px-5 pb-10 pt-5">
-      <header className="flex items-center justify-between gap-2">
-        <Logo compact />
-        <div className="flex items-center gap-3">
-          <LangSwitch />
-          <button className="whitespace-nowrap text-[15px] font-semibold text-muted hover:text-ink" onClick={logout}>
-            {t.logout}
-          </button>
-        </div>
-      </header>
+      <StudentHeader active="join" />
 
       <div className="flex flex-1 flex-col justify-center py-8">
         {me && <p className="text-lg text-muted">{t.hello(me.name)}</p>}

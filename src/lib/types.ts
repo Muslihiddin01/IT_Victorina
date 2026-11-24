@@ -161,3 +161,18 @@ export type ResultPayload = {
   roomStatus: RoomStatus;
   review: ReviewItem[] | null; // разбор доступен после завершения теста учителем
 };
+
+// Тренировка: ученик сам выбирает тему и решает, когда хочет (без оценки и времени)
+export type PracticeTopic = { id: number; title: string; titleTj: string | null; count: number };
+
+export type PracticeQuestion = Translation & {
+  n: number;
+  topic: string;
+  text: string;
+  options: string[];
+  correct: number; // в тренировке правильный ответ показывается сразу после выбора
+  explanation: string;
+  explanationTj: string;
+};
+
+export type PracticeSet = { title: string; titleTj: string | null; questions: PracticeQuestion[] };
