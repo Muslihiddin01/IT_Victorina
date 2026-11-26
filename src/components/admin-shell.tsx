@@ -48,7 +48,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </Link>
           <nav className="order-3 flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto">
             {LINKS.map((link) => {
-              const active = link.href === "/admin" ? pathname === "/admin" || pathname.startsWith("/admin/room") : pathname.startsWith(link.href);
+              const active = link.href === "/admin" ? pathname === "/admin" || pathname.startsWith("/admin/room") : link.href === "/admin/students"
+                    ? pathname.startsWith("/admin/student") // и список, и журнал ученика
+                    : pathname.startsWith(link.href);
               return (
                 <Link
                   key={link.href}

@@ -5,8 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { CheckIcon, DownloadIcon, LeaveIcon, PlusIcon, TrashIcon, UsersIcon, WifiIcon } from "@/components/icons";
+import { GradeBadge, GradesEditor, useGrades } from "@/components/grades";
 import { QrCode } from "@/components/qr-code";
+import { QuestionImage } from "@/components/question-image";
 import { ErrorText, Keycaps, Spinner } from "@/components/ui";
+import { GRADE_KEYS, gradeOf } from "@/lib/grades";
 import { api, formatClock, formatSeconds, formatTimer, plural } from "@/lib/client";
 import { deadlineOf, type Participant, type RoomDetail, type RoomQuestion } from "@/lib/types";
 
@@ -26,6 +29,7 @@ function RoomScreen({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<"finish" | "delete" | null>(null);
+  const gradesState = useGrades();
 
   const load = useCallback(async () => {
     try {
@@ -247,7 +251,7 @@ function RoomScreen({ id }: { id: string }) {
                 <PlusIcon className="size-4" /> Такая же комната
               </button>
             )}
-            <ExportButton roomId={room.id} />
+            <ExportButton roomId={room.id} gradesState={gradesState} />
             {confirm === "delete" ? (
               <>
                 <button className="btn btn-soft btn-sm" onClick={() => setConfirm(null)}>
@@ -276,7 +280,7 @@ function RoomScreen({ id }: { id: string }) {
                 <tr>
                   <th className="px-4 py-3 font-semibold">Ученик</th>
                   <th className="px-4 py-3 font-semibold">Статус</th>
-                  <th className="px-4 py-3 font-semibold">Баллы</th>
+                  <th className="px-4 py-3 font-semibold">Оценка и баллы</th>
                   <th className="px-4 py-3 font-semibold">Нарушения</th>
                 </tr>
               </thead>
@@ -290,6 +294,7 @@ function RoomScreen({ id }: { id: string }) {
                     serverNow={serverNow}
                     questions={questions}
                     open={openId === p.id}
+                    grade={p.score !== null && p.total ? gradeOf(p.score / p.total, gradesState.grades) : null}
                     onToggle={() => setOpenId(openId === p.id ? null : p.id)}
                   />
                 ))}
@@ -349,6 +354,11 @@ function QuestionStats({ questions, submitted }: { questions: RoomQuestion[]; su
                   </span>
                 </summary>
                 <ul className="space-y-1 border-t border-line px-4 py-3">
+                  {question.image && (
+                    <li className="pb-2">
+                      <QuestionImage id={question.image} className="!max-h-48" />
+                    </li>
+                  )}
                   {question.options.map((option, index) => (
                     <li
                       key={index}
@@ -401,6 +411,7 @@ function Answers({ p, questions }: { p: Participant; questions: RoomQuestion[] }
             <p className="font-semibold leading-snug">
               {question.n}. {question.text}
             </p>
+            <QuestionImage id={question.image} className="mt-1.5 !max-h-32" />
             <p className={`mt-1 text-[15px] ${ok ? "text-green-edge" : "text-red-edge"}`}>
               {answered ? `${ok ? "Верно" : "Ответ"}: ${question.options[chosen] ?? "—"}` : "Нет ответа"}
             </p>
@@ -430,6 +441,7 @@ function Row({
   questions,
   open,
   onToggle,
+  grade,
 }: {
   p: Participant;
   roomStatus: RoomDetail["room"]["status"];
@@ -438,6 +450,7 @@ function Row({
   questions: RoomQuestion[] | null;
   open: boolean;
   onToggle: () => void;
+  grade: number | null;
 }) {
   const canOpen = Boolean(p.submittedAt && questions);
   const fresh = p.lastEventAt !== null && serverNow - p.lastEventAt < 15_000 && !p.submittedAt;
@@ -504,6 +517,7 @@ function Row({
         <td className="px-4 py-3">
           {p.score !== null && p.total ? (
             <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+              {grade !== null && <GradeBadge grade={grade} />}
               <span>
                 <b className="font-display text-lg">{p.score}</b>
                 <span className="text-muted">
@@ -548,52 +562,19 @@ function Flag({ tone, icon, children }: { tone: "red" | "sun"; icon: ReactNode; 
   );
 }
 
-// Пороги оценок для Excel: «5» от 85 %, «4» от 70 %, «3» от 50 %.
-// Запоминаются в этом браузере; в самом файле их тоже можно поменять — оценки пересчитаются.
-type Grades = { g5: number; g4: number; g3: number };
-const GRADES_KEY = "quiz:grades";
-const DEFAULT_GRADES: Grades = { g5: 85, g4: 70, g3: 50 };
-const validGrades = (g: Grades) =>
-  [g.g5, g.g4, g.g3].every((n) => Number.isInteger(n) && n >= 1 && n <= 100) && g.g5 > g.g4 && g.g4 > g.g3;
-
-function ExportButton({ roomId }: { roomId: string }) {
-  const [grades, setGrades] = useState<Grades>(DEFAULT_GRADES);
+// Кнопка Excel и пороги оценок. Пороги запоминаются в этом браузере;
+// в самом файле их тоже можно поменять — оценки пересчитаются.
+function ExportButton({ roomId, gradesState }: { roomId: string; gradesState: ReturnType<typeof useGrades> }) {
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(GRADES_KEY) ?? "null") as Grades | null;
-      // localStorage есть только в браузере, поэтому читаем его после первой отрисовки
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (saved && validGrades(saved)) setGrades(saved);
-    } catch {}
-  }, []);
-
-  const change = (key: keyof Grades, value: string) => {
-    const next = { ...grades, [key]: Number(value.replace(/\D/g, "").slice(0, 3)) };
-    setGrades(next);
-    if (validGrades(next)) {
-      try {
-        localStorage.setItem(GRADES_KEY, JSON.stringify(next));
-      } catch {}
-    }
-  };
-  const ok = validGrades(grades);
-  const href = `/api/admin/rooms/${roomId}/export?${new URLSearchParams({
-    g5: String(grades.g5),
-    g4: String(grades.g4),
-    g3: String(grades.g3),
-  })}`;
+  const { grades } = gradesState;
+  const href = `/api/admin/rooms/${roomId}/export?${new URLSearchParams(
+    GRADE_KEYS.map((key) => [key, String(grades[key])]),
+  )}`;
 
   return (
     <div className="relative">
       <div className="flex">
-        <a
-          className={`btn btn-soft btn-sm rounded-r-none ${ok ? "" : "pointer-events-none opacity-50"}`}
-          href={href}
-          download
-          aria-disabled={!ok}
-        >
+        <a className="btn btn-soft btn-sm rounded-r-none" href={href} download>
           <DownloadIcon className="size-4" /> Скачать результаты (Excel)
         </a>
         <button
@@ -601,31 +582,15 @@ function ExportButton({ roomId }: { roomId: string }) {
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
-          Оценки: {grades.g5}/{grades.g4}/{grades.g3}%
+          Оценки: {GRADE_KEYS.map((key) => grades[key]).join("/")}%
         </button>
       </div>
       {open && (
-        <div className="absolute right-0 z-20 mt-2 w-72 rounded-2xl border-[1.5px] border-line bg-white p-4 shadow-[0_6px_0_var(--color-line)]">
-          <p className="text-sm font-semibold">С какого процента ставить оценку</p>
-          <div className="mt-3 space-y-2">
-            {(["g5", "g4", "g3"] as const).map((key) => (
-              <label key={key} className="flex items-center gap-3 text-[15px]">
-                <span className="w-16 font-display font-bold">«{key.slice(1)}» от</span>
-                <input
-                  className="input !w-20 !py-1.5 text-center"
-                  inputMode="numeric"
-                  value={grades[key] || ""}
-                  onChange={(e) => change(key, e.target.value)}
-                />
-                %
-              </label>
-            ))}
-            <p className="text-[15px] text-muted">«2» — ниже порога «3»</p>
-          </div>
-          {!ok && <p className="mt-2 text-sm font-medium text-red-edge">Пороги должны идти по убыванию: 5 &gt; 4 &gt; 3</p>}
-          <p className="mt-3 text-sm leading-relaxed text-muted">
-            В файле пороги стоят в жёлтых ячейках: их можно поменять прямо в Excel — оценки пересчитаются.
-          </p>
+        <div className="absolute right-0 z-20 mt-2">
+          <GradesEditor
+            state={gradesState}
+            note="В файле пороги стоят в жёлтых ячейках: их можно поменять прямо в Excel — оценки пересчитаются."
+          />
         </div>
       )}
     </div>

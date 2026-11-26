@@ -11,7 +11,7 @@ export const GET = route(async (req, { id }) => {
   const db = await getDb();
   const room = await getRoom(db, id);
   const questions = await db.query<RoomQuestion>(
-    `SELECT n, topic_title AS topic, text, options, correct, explanation
+    `SELECT n, topic_title AS topic, text, options, correct, explanation, image
        FROM room_questions WHERE room_id = $1::uuid ORDER BY n`,
     [room.id],
   );

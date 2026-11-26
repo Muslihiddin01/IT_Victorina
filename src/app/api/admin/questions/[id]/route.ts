@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { HttpError, json, readJson, route } from "@/lib/http";
-import { cleanQuestion, jsonOrNull, type QuestionInput } from "@/lib/questions";
+import { checkImage, cleanQuestion, jsonOrNull, type QuestionInput } from "@/lib/questions";
 
 function checkId(id: string) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new HttpError(404, "Вопрос не найден");
@@ -13,9 +13,11 @@ export const PUT = route(async (req, { id }) => {
   checkId(id);
   const question = cleanQuestion(await readJson<QuestionInput>(req));
   const db = await getDb();
+  await checkImage(db, question.image);
   const rows = await db.query(
     `UPDATE questions SET topic_id = $1::int, text = $2, options = $3::text::jsonb, correct = $4::int, explanation = $6,
-            text_tj = $7, options_tj = $8::text::jsonb, explanation_tj = $9
+            text_tj = $7, options_tj = $8::text::jsonb, explanation_tj = $9,
+            image = CASE WHEN $10::boolean THEN $11 ELSE image END
       WHERE id = $5::uuid RETURNING id`,
     [
       question.topicId,
@@ -27,6 +29,8 @@ export const PUT = route(async (req, { id }) => {
       question.textTj,
       jsonOrNull(question.optionsTj),
       question.explanationTj,
+      question.image !== undefined,
+      question.image ?? null,
     ],
   );
   if (rows.length === 0) throw new HttpError(404, "Вопрос не найден");

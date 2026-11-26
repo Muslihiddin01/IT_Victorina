@@ -4,6 +4,7 @@ import type { Db } from "./db";
 import { hashPassword, verifyPassword } from "./password";
 import { SEED_FIXES_V2 } from "./seed-fixes";
 import { SEED_TJ } from "./seed-tj";
+import { WEB_TOPICS } from "./seed-web";
 
 // Первые вопросы по урокам 1–7 и основам HTML/CSS/JS.
 // В каждом вопросе ПЕРВЫЙ вариант — правильный. При создании теста варианты
@@ -596,6 +597,33 @@ const MIGRATIONS: [name: string, run: (db: Db) => Promise<void>][] = [
           WHERE q.text = s.text AND q.options = s.options AND q.correct = 0 AND q.text_tj IS NULL`,
         [JSON.stringify(questions)],
       );
+    },
+  ],
+  [
+    "2026-11-html-css-js",
+    // Новые темы «HTML и CSS» и «JavaScript» с пояснениями и переводом (seed-web.ts).
+    // Если тема с таким названием уже есть — добавляем в неё только вопросы, которых там ещё нет.
+    async (db) => {
+      for (const topic of WEB_TOPICS) {
+        let [row] = await db.query<{ id: number }>("SELECT id FROM topics WHERE title = $1 ORDER BY id LIMIT 1", [topic.title]);
+        if (!row) {
+          [row] = await db.query<{ id: number }>(
+            `INSERT INTO topics (title, title_tj, position)
+             VALUES ($1, $2, (SELECT coalesce(max(position), 0) + 1 FROM topics)) RETURNING id`,
+            [topic.title, topic.titleTj],
+          );
+        } else {
+          await db.query("UPDATE topics SET title_tj = $2 WHERE id = $1::int AND title_tj IS NULL", [row.id, topic.titleTj]);
+        }
+        for (const [text, options, explanation, textTj, optionsTj, explanationTj] of topic.questions) {
+          await db.query(
+            `INSERT INTO questions (topic_id, text, options, correct, explanation, text_tj, options_tj, explanation_tj)
+             SELECT $1::int, $2, $3::text::jsonb, 0, $4, $5, $6::text::jsonb, $7
+              WHERE NOT EXISTS (SELECT 1 FROM questions WHERE topic_id = $1::int AND text = $2)`,
+            [row.id, text, JSON.stringify(options), explanation, textTj, JSON.stringify(optionsTj), explanationTj],
+          );
+        }
+      }
     },
   ],
 ];

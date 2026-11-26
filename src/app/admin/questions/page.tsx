@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { CheckIcon, PlusIcon, TrashIcon } from "@/components/icons";
+import { ImagePicker, QuestionImage } from "@/components/question-image";
 import { ErrorText, Spinner } from "@/components/ui";
 import { api, ApiError, plural } from "@/lib/client";
 import { parseQuestions } from "@/lib/question-text";
@@ -21,6 +22,7 @@ type Draft = {
   textTj: string;
   optionsTj: string[];
   explanationTj: string;
+  image: string | null;
 };
 
 const hasTj = (question: Question) => Boolean(question.textTj && question.optionsTj?.length);
@@ -153,6 +155,7 @@ export default function QuestionsPage() {
       textTj: "",
       optionsTj: ["", "", "", ""],
       explanationTj: "",
+      image: null,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -312,6 +315,7 @@ export default function QuestionsPage() {
                     textTj: question.textTj ?? "",
                     optionsTj: question.options.map((_, i) => question.optionsTj?.[i] ?? ""),
                     explanationTj: question.explanationTj ?? "",
+                    image: question.image ?? null,
                   });
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
@@ -558,6 +562,7 @@ function Editor({
         textTj: draft.textTj,
         optionsTj: draft.optionsTj,
         explanationTj: draft.explanationTj,
+        image: draft.image,
       };
       if (draft.id) await api(`/api/admin/questions/${draft.id}`, { method: "PUT", body });
       else await api("/api/admin/questions", { method: "POST", body });
@@ -630,6 +635,7 @@ function Editor({
           />
         </div>
       </div>
+      <ImagePicker value={draft.image} onChange={(image) => setDraft({ ...draft, image })} />
       <fieldset className="space-y-2">
         <legend className="label">Варианты ответа: отметьте правильный. Справа — тот же вариант по-таджикски</legend>
         {draft.options.map((option, index) => (
@@ -749,6 +755,7 @@ function QuestionCard({
           <p className="font-semibold leading-snug">
             {index + 1}. {question.text}
           </p>
+          <QuestionImage id={question.image} className="mt-2 !max-h-32" />
           {hasTj(question) ? (
             <p lang="tg" className="mt-1 leading-snug text-muted">
               {question.textTj}

@@ -10,10 +10,12 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith("/api/")) return; // данные всегда только с сервера
+  // Картинки вопросов по своему адресу никогда не меняются — их тоже храним, чтобы тест работал без интернета
+  const isImage = url.pathname.startsWith("/api/images/");
+  if (url.pathname.startsWith("/api/") && !isImage) return; // остальные данные всегда только с сервера
 
   // Файлы сборки (JS, CSS, шрифты) не меняются — берём из кэша, если есть
-  if (url.pathname.startsWith("/_next/static/") || /\.(woff2?|png|svg|ico)$/.test(url.pathname)) {
+  if (isImage || url.pathname.startsWith("/_next/static/") || /\.(woff2?|png|svg|ico)$/.test(url.pathname)) {
     event.respondWith(
       caches.open(CACHE).then(async (cache) => {
         const cached = await cache.match(request);

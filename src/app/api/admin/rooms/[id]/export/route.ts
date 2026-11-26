@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { route } from "@/lib/http";
 import { getParticipants, getRoom } from "@/lib/rooms";
+import { DEFAULT_GRADES, GRADE_KEYS, gradeOf, validGrades, type Grades } from "@/lib/grades";
 import { deadlineOf } from "@/lib/types";
 import { buildXlsx, STYLE, type Cell } from "@/lib/xlsx";
 
@@ -12,20 +13,23 @@ function time(value: number | null) {
   return new Intl.DateTimeFormat("ru-RU", { timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(value);
 }
 
-// Пороги оценок в процентах: ?g5=85&g4=70&g3=50. Неверные — берём обычные.
-const DEFAULT_GRADES = { g5: 85, g4: 70, g3: 50 };
-function thresholds(url: URL) {
-  const read = (key: keyof typeof DEFAULT_GRADES) => {
-    const value = Number(url.searchParams.get(key));
-    return Number.isInteger(value) && value >= 1 && value <= 100 ? value : NaN;
-  };
-  const g = { g5: read("g5"), g4: read("g4"), g3: read("g3") };
-  return g.g5 > g.g4 && g.g4 > g.g3 ? g : DEFAULT_GRADES;
+// Пороги оценок в процентах: ?g5=85&g4=70&g3=50&g2=30&g1=15. Неверные — берём обычные.
+function thresholds(url: URL): Grades {
+  const g = Object.fromEntries(GRADE_KEYS.map((key) => [key, Number(url.searchParams.get(key) ?? DEFAULT_GRADES[key])]));
+  return validGrades(g) ? g : DEFAULT_GRADES;
 }
 
-// Где что лежит на листе (строки считаются с 1, как в Excel)
-const HEADER_ROW = 11;
+// Где что лежит на листе (строки считаются с 1, как в Excel): пороги «5»…«1» — в B5:B9
+const GRADE_ROW = 5;
+const HEADER_ROW = 13;
 const FIRST = HEADER_ROW + 1;
+
+// =IF(E14="","",IF(E14>=$B$5,5,IF(E14>=$B$6,4,…,0))) — оценка по жёлтым порогам
+function gradeFormula(cell: string) {
+  let formula = "0";
+  for (let i = GRADE_KEYS.length - 1; i >= 0; i--) formula = `IF(${cell}>=$B$${GRADE_ROW + i},${5 - i},${formula})`;
+  return `IF(${cell}="","",${formula})`;
+}
 
 // GET /api/admin/rooms/:id/export — результаты в Excel. Оценку файл считает сам по порогам вверху листа.
 export const GET = route(async (req, { id }) => {
@@ -35,7 +39,7 @@ export const GET = route(async (req, { id }) => {
   const participants = await getParticipants(db, room.id);
   const g = thresholds(new URL(req.url));
 
-  const grade = (part: number) => (part >= g.g5 / 100 ? 5 : part >= g.g4 / 100 ? 4 : part >= g.g3 / 100 ? 3 : 2);
+  const grade = (part: number) => gradeOf(part, g);
   const last = Math.max(FIRST, FIRST + participants.length - 1);
   const grades = `F${FIRST}:F${last}`;
   const parts = participants.map((p) => (p.score !== null && p.total ? p.score / p.total : null));
@@ -49,10 +53,13 @@ export const GET = route(async (req, { id }) => {
     [`Комната ${room.code} · ${date} · вопросов: ${room.questionCount}`],
     [],
     [{ value: "Пороги оценок: меняйте жёлтые ячейки — оценки пересчитаются сами", style: STYLE.bold }],
-    ["«5» — от", { value: g.g5 / 100, style: STYLE.input }, "Получили «5»", { formula: `COUNTIF(${grades},5)`, cached: count(5) }],
-    ["«4» — от", { value: g.g4 / 100, style: STYLE.input }, "Получили «4»", { formula: `COUNTIF(${grades},4)`, cached: count(4) }],
-    ["«3» — от", { value: g.g3 / 100, style: STYLE.input }, "Получили «3»", { formula: `COUNTIF(${grades},3)`, cached: count(3) }],
-    ["«2» — ниже порога «3»", null, "Получили «2»", { formula: `COUNTIF(${grades},2)`, cached: count(2) }],
+    ...GRADE_KEYS.map((key, i): Cell[] => [
+      `«${5 - i}» — от`,
+      { value: g[key] / 100, style: STYLE.input },
+      `Получили «${5 - i}»`,
+      { formula: `COUNTIF(${grades},${5 - i})`, cached: count(5 - i) },
+    ]),
+    ["«0» — ниже порога «1»", null, "Получили «0»", { formula: `COUNTIF(${grades},0)`, cached: count(0) }],
     [null, null, "Средняя оценка", { formula: `IFERROR(ROUND(AVERAGE(${grades}),2),"")`, cached: average }],
     [],
     [
@@ -71,10 +78,10 @@ export const GET = route(async (req, { id }) => {
       p.login,
       p.score ?? null,
       p.total ?? null,
-      // Не сдал — процента и оценки нет (пустая ячейка, а не «2»)
+      // Не сдал — процента и оценки нет (пустая ячейка, а не «0»)
       { formula: `IF(AND(ISNUMBER(C${r}),D${r}>0),C${r}/D${r},"")`, cached: part ?? "", style: STYLE.percent },
       {
-        formula: `IF(E${r}="","",IF(E${r}>=$B$5,5,IF(E${r}>=$B$6,4,IF(E${r}>=$B$7,3,2))))`,
+        formula: gradeFormula(`E${r}`),
         cached: part === null ? "" : grade(part),
         style: STYLE.center,
       },

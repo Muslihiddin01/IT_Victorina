@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Db } from "./db";
 import { HttpError } from "./http";
 
 export type QuestionInput = {
@@ -11,7 +12,10 @@ export type QuestionInput = {
   textTj?: string;
   optionsTj?: string[];
   explanationTj?: string;
+  image?: string | null; // не прислали совсем — картинку не трогаем
 };
+
+export const IMAGE_ID = /^[0-9a-f]{64}$/;
 
 const str = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
@@ -45,6 +49,9 @@ export function cleanQuestion(input: QuestionInput) {
     throw new HttpError(400, "Пояснение слишком длинное (до 600 символов)");
   }
   if (!Number.isInteger(input.topicId)) throw new HttpError(400, "Выберите тему");
+  if (input.image !== undefined && input.image !== null && !(typeof input.image === "string" && IMAGE_ID.test(input.image))) {
+    throw new HttpError(400, "Картинка не найдена, загрузите её ещё раз");
+  }
 
   // Перевод необязателен, но если начали — нужен целиком (вопрос и все варианты)
   const anyTj = Boolean(textTj || kept.some((row) => row.tj));
@@ -75,7 +82,15 @@ export function cleanQuestion(input: QuestionInput) {
     textTj: anyTj ? textTj : null,
     optionsTj,
     explanationTj: anyTj ? explanationTj : "",
+    image: input.image, // undefined — оставить как есть
   };
+}
+
+// Картинка должна быть уже загружена (POST /api/admin/images)
+export async function checkImage(db: Db, image: string | null | undefined) {
+  if (!image) return;
+  const rows = await db.query("SELECT 1 FROM images WHERE id = $1", [image]);
+  if (rows.length === 0) throw new HttpError(400, "Картинка не найдена, загрузите её ещё раз");
 }
 
 // Для запроса в базу: перевод вариантов храним как jsonb (или NULL)

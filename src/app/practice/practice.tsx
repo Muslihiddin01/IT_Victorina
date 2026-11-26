@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { CheckIcon } from "@/components/icons";
+import { QuestionImage } from "@/components/question-image";
 import { StudentHeader } from "@/components/student-header";
 import { ErrorText, FullScreenLoader, Spinner } from "@/components/ui";
 import { api, ApiError } from "@/lib/client";
@@ -237,13 +238,14 @@ function Session({ topic, onBack }: { topic: string; onBack: () => void }) {
         {shown.text}
       </h1>
       {lang === "tj" && !shown.translated && <p className="mt-1 text-sm text-muted">{t.noTranslation}</p>}
+      <QuestionImage id={question.image} className="mt-4" />
 
       <div className="mt-5 space-y-3">
         {shown.options.map((option, i) => {
           const state = !answered ? undefined : i === question.correct ? "right" : i === chosen ? "wrong" : undefined;
           return (
             <button
-              key={i}
+              key={`${question.n}-${i}`} // новые кнопки для нового вопроса, иначе зелёный цвет прошлого ответа «перетекает»
               className="option"
               data-state={state}
               disabled={answered}

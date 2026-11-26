@@ -34,12 +34,12 @@ export const PATCH = route(async (req, { id }) => {
       for (const [index, question] of questions.entries()) {
         await tx.query(
           `INSERT INTO room_questions (room_id, n, topic_title, text, options, correct, explanation,
-                                      topic_title_tj, text_tj, options_tj, explanation_tj)
-           VALUES ($1::uuid, $2::int, $3, $4, $5::text::jsonb, $6::int, $7, $8, $9, $10::text::jsonb, $11)`,
+                                      topic_title_tj, text_tj, options_tj, explanation_tj, image)
+           VALUES ($1::uuid, $2::int, $3, $4, $5::text::jsonb, $6::int, $7, $8, $9, $10::text::jsonb, $11, $12)`,
           [
             room.id, index + 1, question.topic, question.text, JSON.stringify(question.options), question.correct,
             question.explanation, question.topicTj, question.textTj, jsonOrNull(question.optionsTj),
-            question.explanationTj,
+            question.explanationTj, question.image,
           ],
         );
       }

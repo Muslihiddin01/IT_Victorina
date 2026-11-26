@@ -98,6 +98,17 @@ export const SCHEMA = [
   `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS options_tj jsonb`,
   `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS explanation_tj text NOT NULL DEFAULT ''`,
 
+  // Картинки к вопросам. id — отпечаток (sha256) самого файла, поэтому одна картинка хранится один раз.
+  // В вопросе и в копии вопроса для комнаты лежит только этот id.
+  `CREATE TABLE IF NOT EXISTS images (
+    id text PRIMARY KEY,
+    mime text NOT NULL,
+    data text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS image text`,
+  `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS image text`,
+
   // Разовые правки данных (например, обновление первых вопросов). Каждая выполняется один раз.
   `CREATE TABLE IF NOT EXISTS migrations (
     name text PRIMARY KEY,

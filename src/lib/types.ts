@@ -1,5 +1,8 @@
 // Типы, общие для сервера и браузера.
 
+// Адрес картинки вопроса
+export const imageUrl = (id: string) => `/api/images/${id}`;
+
 export type Role = "admin" | "student";
 
 export type Me = {
@@ -28,6 +31,7 @@ export type Question = {
   textTj: string | null;
   optionsTj: string[] | null;
   explanationTj: string;
+  image: string | null; // id картинки (адрес — imageUrl(id)) или null
 };
 
 export type Student = {
@@ -35,6 +39,26 @@ export type Student = {
   name: string;
   login: string;
   createdAt: number;
+};
+
+// Журнал успеваемости: все тесты одного ученика (старые — первыми)
+export type JournalTest = {
+  roomId: string;
+  title: string;
+  code: string;
+  running: boolean; // тест ещё идёт
+  date: number;
+  submitted: boolean;
+  score: number | null;
+  total: number | null;
+  leaves: number;
+  onlineCount: number;
+  onlineMode: boolean;
+};
+
+export type StudentJournal = {
+  student: { id: string; name: string; login: string };
+  tests: JournalTest[];
 };
 
 export type RoomStatus = "waiting" | "running" | "finished";
@@ -89,6 +113,7 @@ export type Participant = Behaviour & {
 // Вопрос комнаты для учителя — вместе с правильным ответом
 export type RoomQuestion = {
   n: number;
+  image: string | null;
   topic: string;
   text: string;
   options: string[];
@@ -104,6 +129,7 @@ export type RoomDetail = {
 
 // Таджикский вариант вопроса (если учитель его заполнил). Пусто — показываем русский.
 export type Translation = {
+  image?: string | null; // картинка к вопросу (не перевод, но нужна везде, где показывается вопрос)
   topicTj?: string | null;
   textTj?: string | null;
   optionsTj?: string[] | null;

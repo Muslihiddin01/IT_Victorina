@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { CheckIcon, ClockIcon, LeaveIcon, WifiIcon, WifiOffIcon } from "@/components/icons";
+import { preloadImages, QuestionImage } from "@/components/question-image";
 import { ErrorText, FullScreenLoader, Logo, Spinner } from "@/components/ui";
 import { api, ApiError, formatTimer } from "@/lib/client";
 import { LangSwitch, localize, RU_TEXT, useLang } from "@/lib/i18n";
@@ -192,6 +193,7 @@ export function TestRunner() {
           // Тест начался — скачиваем все вопросы сразу
           const test = await api<TestPayload>(`/api/rooms/${roomId}/test`);
           if (stopped) return;
+          preloadImages(test.questions.map((q) => q.image)); // пока есть интернет
           update((s) => ({
             ...s,
             phase: "ready",
@@ -700,11 +702,12 @@ function Questions({
           {shown.text}
         </h1>
         {lang === "tj" && !shown.translated && <p className="mt-1 text-sm text-muted">{t.noTranslation}</p>}
+        <QuestionImage id={question.image} className="mt-4" />
 
         <div className="mt-5 space-y-3">
           {optionOrder.map((optionIndex, position) => (
             <button
-              key={optionIndex}
+              key={`${question.n}-${optionIndex}`}
               className="option"
               aria-pressed={chosen === optionIndex}
               onClick={() => onAnswer(question.n, optionIndex)}
@@ -909,6 +912,7 @@ function Result({ saved, online, onLeave }: { saved: Saved; online: boolean; onL
                   </p>
                   <div lang={shown.htmlLang}>
                     <p className="mt-1 font-semibold leading-snug">{shown.text}</p>
+                    <QuestionImage id={item.image} className="mt-2 !max-h-56" />
                     <p className={`mt-2 text-[15px] ${ok ? "text-green-edge" : "text-red-edge"}`}>
                       {item.chosen === null ? t.noAnswer : t.yourAnswer(shown.options[item.chosen])}
                     </p>

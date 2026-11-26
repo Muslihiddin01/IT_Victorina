@@ -37,13 +37,14 @@ type QuestionRow = {
   text_tj: string | null;
   options_tj: string[] | null;
   explanation_tj: string;
+  image: string | null;
 };
 
 // Берём вопросы из выбранных тем по кругу, чтобы темы перемешались поровну
 export async function pickQuestions(db: Db, topicIds: number[], count: number) {
   const rows = await db.query<QuestionRow>(
     `SELECT q.id, q.topic_id, t.title AS topic_title, q.text, q.options, q.correct, q.explanation,
-            t.title_tj AS topic_title_tj, q.text_tj, q.options_tj, q.explanation_tj
+            t.title_tj AS topic_title_tj, q.text_tj, q.options_tj, q.explanation_tj, q.image
        FROM questions q JOIN topics t ON t.id = q.topic_id`,
   );
   const allowed = new Set(topicIds);
@@ -76,6 +77,7 @@ export async function pickQuestions(db: Db, topicIds: number[], count: number) {
       textTj: tj ? question.text_tj : null,
       optionsTj: tj ? order.map((index) => tj[index]) : null,
       explanationTj: tj ? (question.explanation_tj ?? "") : "",
+      image: question.image ?? null,
     };
   });
 }

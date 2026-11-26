@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { TrashIcon } from "@/components/icons";
@@ -336,7 +337,9 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => P
           </form>
         ) : (
           <div className="min-w-0 flex-1">
-            <p className="font-semibold">{student.name}</p>
+            <Link href={`/admin/student?id=${student.id}`} className="font-semibold hover:text-cobalt">
+              {student.name}
+            </Link>
             <p className="text-sm text-muted">{student.login}</p>
           </div>
         )}
@@ -369,6 +372,9 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => P
         )}
         {mode === "idle" && (
           <div className="flex gap-2">
+            <Link href={`/admin/student?id=${student.id}`} className="btn btn-soft btn-sm">
+              Журнал
+            </Link>
             <button
               className="btn btn-soft btn-sm"
               onClick={() => {
