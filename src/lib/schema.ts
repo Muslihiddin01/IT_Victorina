@@ -115,6 +115,17 @@ export const SCHEMA = [
   `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS typing_sec int`,
   `ALTER TABLE participants ADD COLUMN IF NOT EXISTS wpm int`,
 
+  // Норма печатания по этапам: первый месяц — 30 слов в минуту, потом учитель поднимает (40, …).
+  // Этап длится от started_at до начала следующего. Первый этап начинается с самого первого теста печатания.
+  `CREATE TABLE IF NOT EXISTS typing_goals (
+    id serial PRIMARY KEY,
+    wpm int NOT NULL,
+    started_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `INSERT INTO typing_goals (wpm, started_at)
+   SELECT 30, coalesce((SELECT min(started_at) FROM rooms WHERE kind = 'typing'), now())
+    WHERE NOT EXISTS (SELECT 1 FROM typing_goals)`,
+
   // Разовые правки данных (например, обновление первых вопросов). Каждая выполняется один раз.
   `CREATE TABLE IF NOT EXISTS migrations (
     name text PRIMARY KEY,

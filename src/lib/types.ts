@@ -63,6 +63,30 @@ export type StudentJournal = {
   tests: JournalTest[];
 };
 
+// Норма печатания на этап (например, первый месяц — 30 слов в минуту, второй — 40)
+export type TypingGoal = {
+  id: number;
+  wpm: number;
+  startedAt: number;
+  endedAt: number | null; // null — этап идёт сейчас
+};
+
+// Ученик в журнале печатания: лучший результат за этап
+export type TypingGoalStudent = {
+  id: string;
+  name: string;
+  login: string;
+  best: number | null; // null — за этап ни разу не печатал
+  attempts: number;
+  passedAt: number | null; // когда впервые набрал норму
+};
+
+export type TypingJournal = {
+  goals: TypingGoal[]; // новые — первыми
+  goal: TypingGoal; // этап, который показываем
+  students: TypingGoalStudent[];
+};
+
 // quiz — обычный тест с вопросами, typing — печатание на скорость
 export type RoomKind = "quiz" | "typing";
 
@@ -132,6 +156,7 @@ export type RoomQuestion = {
 export type RoomDetail = {
   room: Room;
   participants: Participant[];
+  typingGoal: number | null; // печатание: норма слов в минуту для этого теста
   serverNow: number;
 };
 
@@ -161,6 +186,7 @@ export type RoomState = {
     endsAt: number | null;
     kind: RoomKind;
     typingSec: number | null;
+    typingGoal: number | null; // печатание: норма слов в минуту для этого теста
   };
   joinedCount: number;
   me: { submitted: boolean; score: number | null; total: number | null; wpm: number | null };

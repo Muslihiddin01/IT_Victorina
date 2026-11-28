@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { route } from "@/lib/http";
 import { getParticipants, getRoom } from "@/lib/rooms";
+import { goalAt } from "@/lib/typing-goals";
 import { DEFAULT_GRADES, GRADE_KEYS, gradeOf, validGrades, type Grades } from "@/lib/grades";
 import { deadlineOf, type Participant, type Room } from "@/lib/types";
 import { buildXlsx, STYLE, type Cell } from "@/lib/xlsx";
@@ -38,7 +39,7 @@ export const GET = route(async (req, { id }) => {
   const room = await getRoom(db, id);
   const participants = await getParticipants(db, room.id);
   const g = thresholds(new URL(req.url));
-  if (room.kind === "typing") return typingFile(room, participants);
+  if (room.kind === "typing") return typingFile(room, participants, await goalAt(db, room.startedAt));
 
   const grade = (part: number) => gradeOf(part, g);
   const last = Math.max(FIRST, FIRST + participants.length - 1);
@@ -116,7 +117,7 @@ function download(file: Uint8Array, room: Room, date: string) {
 }
 
 // Печатание на скорость: у каждого ученика — слов в минуту (лучшие сверху)
-function typingFile(room: Room, participants: Participant[]) {
+function typingFile(room: Room, participants: Participant[], goal: number | null) {
   const date = new Intl.DateTimeFormat("ru-RU", { timeZone: TZ }).format(room.createdAt);
   const done = participants.filter((p) => p.wpm !== null);
   const average = done.length ? Math.round(done.reduce((sum, p) => sum + p.wpm!, 0) / done.length) : "";
@@ -125,14 +126,16 @@ function typingFile(room: Room, participants: Participant[]) {
     [`Комната ${room.code} · ${date} · ${room.typingSec} секунд · английские слова`],
     [],
     ["Средняя скорость", average === "" ? "" : { value: average, style: STYLE.bold }, "слов в минуту"],
+    ["Норма", goal ?? "", "слов в минуту"],
     [],
-    ["Имя", "Логин", "Слов в минуту", "Отправил"].map((title) => ({ value: title, style: STYLE.header })),
+    ["Имя", "Логин", "Слов в минуту", "Норма", "Отправил"].map((title) => ({ value: title, style: STYLE.header })),
     ...participants.map((p): Cell[] => [
       p.name,
       p.login,
       p.wpm === null ? "не сдал" : { value: p.wpm, style: STYLE.center },
+      p.wpm === null || goal === null ? "" : { value: p.wpm >= goal ? "набрал" : "нет", style: STYLE.center },
       time(p.submittedAt),
     ]),
   ];
-  return download(buildXlsx({ name: "Печатание", rows, widths: [28, 16, 15, 11] }), room, date);
+  return download(buildXlsx({ name: "Печатание", rows, widths: [28, 16, 15, 11, 11] }), room, date);
 }

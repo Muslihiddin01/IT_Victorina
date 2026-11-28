@@ -8,7 +8,7 @@ import { ErrorText, FullScreenLoader, Spinner } from "@/components/ui";
 import { api, ApiError } from "@/lib/client";
 import { RU_TEXT, useLang } from "@/lib/i18n";
 import type { Me, RoomState } from "@/lib/types";
-import { makeWords, TYPING_SECONDS, type TypingResult, type TypingSeconds } from "@/lib/typing";
+import { makeWords, type TypingResult } from "@/lib/typing";
 
 export function Typing() {
   const [me, setMe] = useState<Me | null>(null);
@@ -18,113 +18,51 @@ export function Typing() {
     api<{ user: Me | null }>("/api/me")
       .then(({ user }) => {
         if (!user) return window.location.replace("/login");
-        setRoomId(new URLSearchParams(window.location.search).get("room"));
+        // Печатание теперь только тест от учителя: без комнаты — на страницу кода
+        const room = new URLSearchParams(window.location.search).get("room");
+        if (!room) return window.location.replace("/join");
+        setRoomId(room);
         setMe(user);
       })
       .catch(() => window.location.replace("/login"));
   }, []);
 
-  if (!me) return <FullScreenLoader />;
+  if (!me || !roomId) return <FullScreenLoader />;
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pb-10 pt-4 sm:px-6">
-      <StudentHeader active={roomId ? "join" : "practice"} />
-      {roomId ? <RoomTyping roomId={roomId} /> : <PracticeTyping />}
+      <StudentHeader active="join" />
+      <RoomTyping roomId={roomId} />
     </main>
   );
 }
 
-// Рекорд ученика на этом устройстве (отдельно для 30 и 60 секунд)
-const BEST_KEY = "quiz:typing-best";
-function readBest(): Record<string, number> {
-  try {
-    return JSON.parse(localStorage.getItem(BEST_KEY) ?? "{}") as Record<string, number>;
-  } catch {
-    return {};
-  }
-}
-
-function PracticeTyping() {
+// Результат и норма этапа: набрал — зелёная карточка, не набрал — синяя и сколько не хватило
+function Result({ wpm, seconds, goal }: { wpm: number; seconds: number; goal: number | null }) {
   const { t } = useLang();
-  const [seconds, setSeconds] = useState<TypingSeconds>(30);
-  const [round, setRound] = useState(0);
-  const [words, setWords] = useState<string[] | null>(null);
-  const [result, setResult] = useState<TypingResult | null>(null);
-  const [best, setBest] = useState<Record<string, number>>({});
-
-  // Новые случайные слова на каждую попытку (в браузере, чтобы не было разницы с сервером при отрисовке)
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setWords(makeWords(`${Date.now()}-${Math.random()}`));
-    setResult(null);
-    setBest(readBest());
-  }, [round, seconds]);
-
-  const finish = useCallback(
-    (next: TypingResult) => {
-      setResult(next);
-      const saved = readBest();
-      if (next.wpm > (saved[seconds] ?? 0)) {
-        saved[seconds] = next.wpm;
-        try {
-          localStorage.setItem(BEST_KEY, JSON.stringify(saved));
-        } catch {}
-      }
-      setBest(saved);
-    },
-    [seconds],
-  );
-
+  const passed = goal !== null && wpm >= goal;
   return (
-    <section className="mt-6">
-      <a href="/practice" className="text-[15px] font-semibold text-cobalt">
-        ← {t.backToTopics}
-      </a>
-      <h1 className="mt-3 font-display text-[28px] font-bold leading-tight">{t.typingTitle}</h1>
-      <p className="mt-2 text-lg leading-relaxed text-muted">{t.typingLead}</p>
-
-      <div className="mt-5 flex items-center gap-2">
-        {TYPING_SECONDS.map((value) => (
-          <button
-            key={value}
-            className={`btn btn-sm ${seconds === value ? "btn-primary" : "btn-soft"}`}
-            onClick={() => {
-              setSeconds(value);
-              setRound(round + 1);
-            }}
-          >
-            {t.typingSeconds(value)}
-          </button>
-        ))}
-        {best[seconds] ? (
-          <span className="ml-auto text-[15px] text-muted">
-            🏆 <b className="text-ink">{best[seconds]}</b> {t.wpm}
-          </span>
-        ) : null}
+    <>
+      <div
+        className={`rounded-[24px] px-6 py-8 text-center text-white ${
+          passed
+            ? "bg-green shadow-[0_5px_0_var(--color-green-edge)]"
+            : "bg-cobalt shadow-[0_5px_0_var(--color-cobalt-edge)]"
+        }`}
+      >
+        <p className="font-display text-[72px] font-bold leading-none tabular-nums">{wpm}</p>
+        <p className="mt-2 text-xl font-semibold">{t.wpm}</p>
+        <p className="mt-1 text-white/80">{t.typingSeconds(seconds)}</p>
       </div>
-
-      <div className="mt-6">
-        {result ? (
-          <Result wpm={result.wpm} seconds={seconds} />
-        ) : words ? (
-          <TypingTest key={round} words={words} seconds={seconds} onFinish={finish} />
-        ) : null}
-      </div>
-
-      <button className="btn btn-soft mt-6 w-full" onClick={() => setRound(round + 1)}>
-        {t.typingRestart}
-      </button>
-    </section>
-  );
-}
-
-function Result({ wpm, seconds }: { wpm: number; seconds: number }) {
-  const { t } = useLang();
-  return (
-    <div className="rounded-[24px] bg-cobalt px-6 py-8 text-center text-white shadow-[0_5px_0_var(--color-cobalt-edge)]">
-      <p className="font-display text-[72px] font-bold leading-none tabular-nums">{wpm}</p>
-      <p className="mt-2 text-xl font-semibold">{t.wpm}</p>
-      <p className="mt-1 text-white/80">{t.typingSeconds(seconds)}</p>
-    </div>
+      {goal !== null && (
+        <p
+          className={`mt-4 rounded-2xl px-5 py-4 text-center text-lg font-semibold ${
+            passed ? "bg-green-soft text-green-edge" : "bg-sun-soft text-[#7a4f00]"
+          }`}
+        >
+          {passed ? `✅ ${t.typingGoalPassed(goal)}` : t.typingGoalMissed(goal, goal - wpm)}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -205,13 +143,13 @@ function RoomTyping({ roomId }: { roomId: string }) {
       <div className="mt-6">
         {wpm !== null && (me.submitted || sent !== null) ? (
           <>
-            <Result wpm={wpm} seconds={seconds} />
+            <Result wpm={wpm} seconds={seconds} goal={room.typingGoal} />
             <p className="mt-4 text-center text-muted">{t.typingSent}</p>
           </>
         ) : result ? (
           // Время вышло, результат отправляется (или не отправился — тогда можно повторить)
           <>
-            <Result wpm={result.wpm} seconds={seconds} />
+            <Result wpm={result.wpm} seconds={seconds} goal={room.typingGoal} />
             <div className="mt-4">
               <ErrorText>{err(error)}</ErrorText>
             </div>

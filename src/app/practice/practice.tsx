@@ -68,21 +68,6 @@ export function Practice() {
           <p className="mt-2 text-lg leading-relaxed text-muted">{t.practiceLead}</p>
           <ErrorText>{err(error)}</ErrorText>
 
-          {/* Печатание на скорость — обычная ссылка, страница загрузится целиком */}
-          <a
-            href="/typing"
-            className="mt-6 flex w-full items-center gap-4 rounded-[20px] border-[1.5px] border-line bg-white p-4 text-left shadow-[0_4px_0_var(--color-line)] transition hover:border-key-edge active:translate-y-1 active:shadow-none"
-          >
-            <span className="flex gap-1 text-[15px]" aria-hidden>
-              <span className="keycap size-[1.9em] -rotate-6 !bg-cobalt-soft">A</span>
-              <span className="keycap size-[1.9em] rotate-6 !bg-cobalt-soft">Z</span>
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block font-display text-lg font-bold leading-snug">{t.typingTitle}</span>
-              <span className="block text-[15px] text-muted">{t.typingCardHint}</span>
-            </span>
-          </a>
-
           {!topics ? (
             !error && <Spinner className="mt-6 size-6 text-cobalt" />
           ) : topics.length === 0 ? (

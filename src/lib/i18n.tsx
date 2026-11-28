@@ -178,18 +178,16 @@ const RU = {
   again: "Ещё раз",
   otherTopic: "Другая тема",
   // печатание
-  typingTitle: "Печатание на скорость",
-  typingCardHint: "Английские слова · 30 или 60 секунд",
-  typingLead: "Печатай слова как можно быстрее. Таймер запустится с первой буквы. После слова — пробел.",
   typingTap: "Нажми сюда и начинай печатать",
   typingSeconds: (n: number) => `${n} сек`,
   wpm: "слов в минуту",
-  typingRestart: "Заново",
   typingRoomLead: (n: number) => `Тест на печатание: ${n} секунд. Таймер запустится с первой буквы.`,
   typingWaiting: "Ждём, когда учитель начнёт. Не закрывай эту страницу.",
   typingSent: "Результат уже у учителя.",
   typingClosed: "Учитель уже завершил этот тест.",
   typingOneTry: "Попытка одна: печатай внимательно.",
+  typingGoalPassed: (goal: number) => `Норма ${goal} слов в минуту — пройдена!`,
+  typingGoalMissed: (goal: number, left: number) => `Норма — ${goal} слов в минуту. Не хватило ${left}. Тренируйся дома на monkeytype.`,
 };
 
 // В таджикском после числа слово не меняется: 1 савол, 5 савол.
@@ -295,18 +293,16 @@ const TJ: typeof RU = {
   again: "Боз як бор",
   otherTopic: "Мавзӯи дигар",
   // печатание
-  typingTitle: "Тез чоп кардан",
-  typingCardHint: "Калимаҳои англисӣ · 30 ё 60 сония",
-  typingLead: "Калимаҳоро ҳарчи тезтар чоп кун. Вақтсанҷ аз ҳарфи аввал оғоз мешавад. Баъди калима — фосила.",
   typingTap: "Ин ҷо пахш кун ва чопро оғоз кун",
   typingSeconds: (n: number) => `${n} сон.`,
   wpm: "калима дар як дақиқа",
-  typingRestart: "Аз нав",
   typingRoomLead: (n: number) => `Санҷиши чоп: ${n} сония. Вақтсанҷ аз ҳарфи аввал оғоз мешавад.`,
   typingWaiting: "Интизорем, ки муаллим оғоз кунад. Ин саҳифаро напӯш.",
   typingSent: "Натиҷа аллакай дар назди муаллим аст.",
   typingClosed: "Муаллим ин санҷишро аллакай анҷом дод.",
   typingOneTry: "Танҳо як кӯшиш: бодиққат чоп кун.",
+  typingGoalPassed: (goal: number) => `Меъёри ${goal} калима дар як дақиқа — гузашт!`,
+  typingGoalMissed: (goal: number, left: number) => `Меъёр — ${goal} калима дар як дақиқа. ${left} калима нарасид. Дар хона дар monkeytype машқ кун.`,
 };
 
 const TEXT = { ru: RU, tj: TJ };

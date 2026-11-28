@@ -1,6 +1,7 @@
 import { json, route } from "@/lib/http";
 import { loadParticipant } from "@/lib/participant";
 import type { RoomState } from "@/lib/types";
+import { goalAt } from "@/lib/typing-goals";
 
 // GET /api/rooms/:id — состояние комнаты для ученика (браузер спрашивает каждые 2 секунды)
 export const GET = route(async (req, { id }) => {
@@ -17,6 +18,7 @@ export const GET = route(async (req, { id }) => {
       endsAt: room.endsAt,
       kind: room.kind,
       typingSec: room.typingSec,
+      typingGoal: room.kind === "typing" ? await goalAt(db, room.startedAt) : null,
     },
     joinedCount: room.participants,
     me: {

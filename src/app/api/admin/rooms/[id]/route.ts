@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db";
 import { HttpError, json, readJson, route } from "@/lib/http";
 import { jsonOrNull } from "@/lib/questions";
 import { getParticipants, getRoom, pickQuestions } from "@/lib/rooms";
+import { goalAt } from "@/lib/typing-goals";
+import type { RoomDetail } from "@/lib/types";
 
 // GET /api/admin/rooms/:id — комната, ученики и их результаты (учитель обновляет каждые 2 секунды)
 export const GET = route(async (req, { id }) => {
@@ -10,7 +12,13 @@ export const GET = route(async (req, { id }) => {
   const db = await getDb();
   const room = await getRoom(db, id);
   const participants = await getParticipants(db, room.id);
-  return json({ room, participants, serverNow: Date.now() });
+  const detail: RoomDetail = {
+    room,
+    participants,
+    typingGoal: room.kind === "typing" ? await goalAt(db, room.startedAt) : null,
+    serverNow: Date.now(),
+  };
+  return json(detail);
 });
 
 // PATCH /api/admin/rooms/:id — { action: "start" }, { action: "finish" } или { action: "extend", minutes }

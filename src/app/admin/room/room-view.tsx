@@ -99,7 +99,7 @@ function RoomScreen({ id }: { id: string }) {
     return error ? <ErrorText>{error}</ErrorText> : <Spinner className="size-6 text-cobalt" />;
   }
 
-  const { room, participants } = data;
+  const { room, participants, typingGoal } = data;
   const serverNow = now + offset;
   const remaining = room.endsAt ? room.endsAt - serverNow : 0;
   const submitted = participants.filter((p) => p.submittedAt);
@@ -109,6 +109,7 @@ function RoomScreen({ id }: { id: string }) {
     : null;
   const typing = room.kind === "typing";
   const speeds = submitted.map((p) => p.wpm ?? 0);
+  const reachedGoal = typingGoal === null ? 0 : speeds.filter((wpm) => wpm >= typingGoal).length;
   const host = typeof window !== "undefined" ? window.location.host : "";
   const joinUrl = typeof window !== "undefined" ? `${window.location.origin}/join?code=${room.code}` : "";
 
@@ -283,7 +284,11 @@ function RoomScreen({ id }: { id: string }) {
           <p className="font-display text-lg font-bold">Тест завершён в {formatClock(room.finishedAt)}</p>
           {typing ? (
             <p className="mt-1 leading-relaxed text-muted">
-              Результаты печатания — в таблице ниже, самые быстрые сверху.
+              Результаты печатания — в таблице ниже, самые быстрые сверху. Кто уже набрал норму за этап — в{" "}
+              <Link href="/admin/typing" className="font-semibold text-cobalt">
+                журнале печатания
+              </Link>
+              .
             </p>
           ) : (
             <p className="mt-1 leading-relaxed text-muted">
@@ -296,8 +301,8 @@ function RoomScreen({ id }: { id: string }) {
 
       {typing ? (
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="В комнате" value={participants.length} />
-          <Stat label="Закончили" value={submitted.length} />
+          <Stat label="Закончили" value={`${submitted.length} из ${participants.length}`} />
+          <Stat label={`Набрали норму ${typingGoal ?? "—"}`} value={submitted.length ? reachedGoal : "—"} />
           <Stat
             label="Средняя скорость"
             value={speeds.length ? `${Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length)} сл/мин` : "—"}
@@ -373,6 +378,7 @@ function RoomScreen({ id }: { id: string }) {
                     open={openId === p.id}
                     grade={p.score !== null && p.total ? gradeOf(p.score / p.total, gradesState.grades) : null}
                     typing={typing}
+                    typingGoal={typingGoal}
                     onToggle={() => setOpenId(openId === p.id ? null : p.id)}
                   />
                 ))}
@@ -524,6 +530,7 @@ function Row({
   onToggle,
   grade,
   typing,
+  typingGoal,
 }: {
   p: Participant;
   roomStatus: RoomDetail["room"]["status"];
@@ -534,6 +541,7 @@ function Row({
   onToggle: () => void;
   grade: number | null;
   typing: boolean;
+  typingGoal: number | null;
 }) {
   const canOpen = Boolean(p.submittedAt && questions);
   const fresh = p.lastEventAt !== null && serverNow - p.lastEventAt < 15_000 && !p.submittedAt;
@@ -610,8 +618,15 @@ function Row({
         <td className="px-4 py-3">
           {typing ? (
             p.wpm !== null ? (
-              <span>
-                <b className="font-display text-xl">{p.wpm}</b> <span className="text-muted">слов/мин</span>
+              <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>
+                  <b className="font-display text-xl">{p.wpm}</b> <span className="text-muted">слов/мин</span>
+                </span>
+                {typingGoal !== null && p.wpm >= typingGoal && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-green-soft px-2.5 py-1 text-sm font-semibold text-green-edge">
+                    <CheckIcon className="size-3.5" /> норма
+                  </span>
+                )}
               </span>
             ) : (
               <span className="text-muted">—</span>
