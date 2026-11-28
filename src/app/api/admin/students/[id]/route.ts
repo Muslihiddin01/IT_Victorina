@@ -1,6 +1,7 @@
 import { hashPassword, requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { ms } from "@/lib/db";
+import { checkGroupId } from "@/lib/groups";
 import { HttpError, json, readJson, route } from "@/lib/http";
 import { generatePassword } from "@/lib/students";
 import type { StudentJournal } from "@/lib/types";
@@ -63,12 +64,22 @@ export const GET = route(async (req, { id }) => {
   return json(payload);
 });
 
-// PATCH /api/admin/students/:id — новый пароль или новое имя
+// PATCH /api/admin/students/:id — новый пароль, новое имя или другая группа ({ groupId })
 export const PATCH = route(async (req, { id }) => {
   await requireUser(req, "admin");
   checkId(id);
-  const body = await readJson<{ resetPassword?: boolean; name?: string }>(req);
+  const body = await readJson<{ resetPassword?: boolean; name?: string; groupId?: number | null }>(req);
   const db = await getDb();
+
+  if ("groupId" in body) {
+    const groupId = await checkGroupId(db, body.groupId);
+    const rows = await db.query(
+      "UPDATE users SET group_id = $2::int WHERE id = $1::uuid AND role = 'student' RETURNING id",
+      [id, groupId],
+    );
+    if (rows.length === 0) throw new HttpError(404, "Ученик не найден");
+    return json({ ok: true });
+  }
 
   if (body.resetPassword) {
     const password = generatePassword();

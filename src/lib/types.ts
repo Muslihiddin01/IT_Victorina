@@ -38,8 +38,34 @@ export type Student = {
   id: string;
   name: string;
   login: string;
+  groupId: number | null;
   createdAt: number;
 };
+
+export type Group = { id: number; name: string; students: number };
+
+// Общий журнал группы: тесты (столбцы) и лучший результат печатания
+export type ClassJournalRoom = { id: string; title: string; code: string; date: number; running: boolean };
+export type ClassJournalStudent = {
+  id: string;
+  name: string;
+  login: string;
+  typingBest: number | null; // лучший результат: тренировка и тесты учителя
+  typingPassedAt: number | null; // когда впервые набрал текущую норму
+  // roomId → результат; нет ключа — ученик не заходил в эту комнату
+  results: Record<string, { score: number | null; total: number | null; submitted: boolean }>;
+};
+export type ClassJournal = {
+  groups: Group[];
+  groupId: number | null; // null — ученики без группы
+  ungrouped: number; // сколько учеников без группы
+  typingGoal: number;
+  rooms: ClassJournalRoom[]; // новые — первыми
+  students: ClassJournalStudent[];
+};
+
+// Печатание в тренировке: рекорд ученика и норма
+export type TypingMe = { best: number | null; goal: number };
 
 // Журнал успеваемости: все тесты одного ученика (старые — первыми)
 export type JournalTest = {
@@ -61,30 +87,6 @@ export type JournalTest = {
 export type StudentJournal = {
   student: { id: string; name: string; login: string };
   tests: JournalTest[];
-};
-
-// Норма печатания на этап (например, первый месяц — 30 слов в минуту, второй — 40)
-export type TypingGoal = {
-  id: number;
-  wpm: number;
-  startedAt: number;
-  endedAt: number | null; // null — этап идёт сейчас
-};
-
-// Ученик в журнале печатания: лучший результат за этап
-export type TypingGoalStudent = {
-  id: string;
-  name: string;
-  login: string;
-  best: number | null; // null — за этап ни разу не печатал
-  attempts: number;
-  passedAt: number | null; // когда впервые набрал норму
-};
-
-export type TypingJournal = {
-  goals: TypingGoal[]; // новые — первыми
-  goal: TypingGoal; // этап, который показываем
-  students: TypingGoalStudent[];
 };
 
 // quiz — обычный тест с вопросами, typing — печатание на скорость

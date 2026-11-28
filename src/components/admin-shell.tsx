@@ -13,9 +13,9 @@ export const useAdmin = () => use(AdminContext);
 
 const LINKS = [
   { href: "/admin", label: "Комнаты" },
+  { href: "/admin/journal", label: "Журнал" },
   { href: "/admin/students", label: "Ученики" },
   { href: "/admin/questions", label: "Вопросы" },
-  { href: "/admin/typing", label: "Печатание" },
 ];
 
 // Рамка админки: проверяем, что вошёл учитель, и показываем меню

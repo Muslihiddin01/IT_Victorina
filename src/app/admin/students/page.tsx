@@ -3,60 +3,94 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
-import { TrashIcon } from "@/components/icons";
+import { GroupTabs, loadGroup } from "@/components/group-tabs";
+import { PlusIcon, TrashIcon } from "@/components/icons";
 import { ErrorText, Spinner } from "@/components/ui";
 import { api, plural } from "@/lib/client";
-import type { Student } from "@/lib/types";
+import type { Group, Student } from "@/lib/types";
 
 type Created = { id: string; name: string; login: string; password: string };
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[] | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupId, setGroupId] = useState<number | null>(null);
   const [created, setCreated] = useState<Created[]>([]);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    const data = await api<{ students: Student[] }>("/api/admin/students");
-    setStudents(data.students);
+    const [list, data] = await Promise.all([
+      api<{ students: Student[] }>("/api/admin/students"),
+      api<{ groups: Group[] }>("/api/admin/groups"),
+    ]);
+    setStudents(list.students);
+    setGroups(data.groups);
+    return { students: list.students, groups: data.groups };
   }, []);
 
   useEffect(() => {
-    api<{ students: Student[] }>("/api/admin/students")
-      .then((data) => setStudents(data.students))
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- первая загрузка списка
+    load()
+      .then((data) => {
+        // Открываем последнюю группу; если её уже нет — первую
+        const saved = loadGroup();
+        const ok =
+          saved === null
+            ? data.students.some((s) => s.groupId === null)
+            : data.groups.some((g) => g.id === saved);
+        setGroupId(saved !== undefined && ok ? saved : (data.groups[0]?.id ?? null));
+      })
       .catch((e) => setError(e.message));
-  }, []);
+  }, [load]);
 
   async function add(list: { name: string; login?: string; password?: string }[]) {
     const data = await api<{ created: Created[] }>("/api/admin/students", {
       method: "POST",
-      body: { students: list },
+      body: { students: list, groupId },
     });
     setCreated(data.created);
     await load();
   }
 
+  const group = groups.find((g) => g.id === groupId) ?? null;
+  const shown = students?.filter((s) => s.groupId === groupId) ?? null;
+  const ungrouped = students?.filter((s) => s.groupId === null).length ?? 0;
+  const target = group ? `в группу «${group.name}»` : "без группы";
+
   return (
     <div className="grid gap-8 lg:grid-cols-[400px_1fr]">
       <div className="space-y-6">
-        <AddOne onAdd={add} />
-        <AddMany onAdd={add} />
+        <AddOne onAdd={add} target={target} />
+        <AddMany onAdd={add} target={target} />
       </div>
 
       <section className="min-w-0">
         {created.length > 0 && <CreatedList created={created} onClose={() => setCreated([])} />}
 
-        <h2 className="font-display text-xl font-bold">
-          Ученики{students ? <span className="text-muted"> {students.length}</span> : null}
+        <GroupBar
+          groups={groups}
+          groupId={groupId}
+          ungrouped={ungrouped}
+          onSelect={setGroupId}
+          onChange={async (id) => {
+            await load();
+            if (id !== undefined) setGroupId(id);
+          }}
+        />
+
+        <h2 className="mt-6 font-display text-xl font-bold">
+          {group ? group.name : "Без группы"}
+          {shown ? <span className="text-muted"> · {shown.length}</span> : null}
         </h2>
         <ErrorText>{error}</ErrorText>
-        {!students ? (
+        {!shown ? (
           <Spinner className="mt-6 size-6 text-cobalt" />
-        ) : students.length === 0 ? (
-          <p className="mt-4 text-muted">Учеников пока нет. Добавьте их слева: по одному или списком.</p>
+        ) : shown.length === 0 ? (
+          <p className="mt-4 text-muted">В этой группе пока нет учеников. Добавьте их слева: по одному или списком.</p>
         ) : (
           <ul className="mt-4 divide-y divide-line overflow-hidden rounded-2xl border-[1.5px] border-line bg-white">
-            {students.map((student) => (
-              <StudentRow key={student.id} student={student} onChange={load} />
+            {shown.map((student) => (
+              <StudentRow key={student.id} student={student} groups={groups} onChange={load} />
             ))}
           </ul>
         )}
@@ -65,7 +99,141 @@ export default function StudentsPage() {
   );
 }
 
-function AddOne({ onAdd }: { onAdd: (list: { name: string; login?: string; password?: string }[]) => Promise<void> }) {
+// Группы: вкладки, новая группа, переименовать, удалить пустую
+function GroupBar({
+  groups,
+  groupId,
+  ungrouped,
+  onSelect,
+  onChange,
+}: {
+  groups: Group[];
+  groupId: number | null;
+  ungrouped: number;
+  onSelect: (id: number | null) => void;
+  onChange: (select?: number | null) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<"idle" | "new" | "rename" | "delete">("idle");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const group = groups.find((g) => g.id === groupId) ?? null;
+
+  async function run(action: () => Promise<number | null | undefined>) {
+    setBusy(true);
+    setError("");
+    try {
+      const select = await action();
+      await onChange(select);
+      setMode("idle");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    run(async () => {
+      if (mode === "new") {
+        const data = await api<{ id: number }>("/api/admin/groups", { method: "POST", body: { name } });
+        return data.id;
+      }
+      await api(`/api/admin/groups/${groupId}`, { method: "PATCH", body: { name } });
+      return undefined;
+    });
+  }
+
+  return (
+    <div>
+      <GroupTabs groups={groups} value={groupId} onChange={onSelect} ungrouped={ungrouped}>
+        {mode === "idle" && (
+          <button
+            className="btn btn-soft btn-sm"
+            onClick={() => {
+              setName(`Группа ${groups.length + 1}`);
+              setMode("new");
+            }}
+          >
+            <PlusIcon className="size-4" /> Группа
+          </button>
+        )}
+      </GroupTabs>
+
+      {(mode === "new" || mode === "rename") && (
+        <form onSubmit={submit} className="mt-3 flex flex-wrap gap-2">
+          <input
+            className="input !min-h-9 min-w-48 flex-1 !py-1.5"
+            aria-label="Название группы"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+          <button className="btn btn-primary btn-sm" disabled={busy || !name.trim()}>
+            {busy ? <Spinner /> : null} {mode === "new" ? "Создать группу" : "Сохранить"}
+          </button>
+          <button type="button" className="btn btn-soft btn-sm" onClick={() => setMode("idle")}>
+            Отмена
+          </button>
+        </form>
+      )}
+
+      {mode === "delete" && group && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[15px]">Удалить пустую группу «{group.name}»?</span>
+          <button className="btn btn-soft btn-sm" onClick={() => setMode("idle")}>
+            Отмена
+          </button>
+          <button
+            className="btn btn-danger btn-sm"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                await api(`/api/admin/groups/${group.id}`, { method: "DELETE" });
+                return groups.find((g) => g.id !== group.id)?.id ?? null;
+              })
+            }
+          >
+            Удалить
+          </button>
+        </div>
+      )}
+
+      {mode === "idle" && group && (
+        <div className="mt-2 flex flex-wrap gap-3 text-[15px]">
+          <button
+            className="font-semibold text-cobalt"
+            onClick={() => {
+              setName(group.name);
+              setMode("rename");
+            }}
+          >
+            Переименовать «{group.name}»
+          </button>
+          {group.students === 0 && (
+            <button className="font-semibold text-red-edge" onClick={() => setMode("delete")}>
+              Удалить группу
+            </button>
+          )}
+        </div>
+      )}
+      {error && (
+        <div className="mt-2">
+          <ErrorText>{error}</ErrorText>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddOne({
+  onAdd,
+  target,
+}: {
+  onAdd: (list: { name: string; login?: string; password?: string }[]) => Promise<void>;
+  target: string;
+}) {
   const [name, setName] = useState("");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -90,7 +258,10 @@ function AddOne({ onAdd }: { onAdd: (list: { name: string; login?: string; passw
 
   return (
     <form onSubmit={submit} className="panel space-y-4 p-5">
-      <h1 className="font-display text-xl font-bold">Добавить ученика</h1>
+      <div>
+        <h1 className="font-display text-xl font-bold">Добавить ученика</h1>
+        <p className="text-sm text-muted">{target}</p>
+      </div>
       <div>
         <label className="label" htmlFor="name">
           Имя и фамилия
@@ -141,8 +312,10 @@ function parseStudent(line: string) {
 
 function AddMany({
   onAdd,
+  target,
 }: {
   onAdd: (list: { name: string; login?: string; password?: string }[]) => Promise<void>;
+  target: string;
 }) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
@@ -171,7 +344,10 @@ function AddMany({
 
   return (
     <form onSubmit={submit} className="panel space-y-4 p-5">
-      <h2 className="font-display text-lg font-bold">Добавить целый класс</h2>
+      <div>
+        <h2 className="font-display text-lg font-bold">Добавить целый класс</h2>
+        <p className="text-sm text-muted">{target}</p>
+      </div>
       <div>
         <label className="label" htmlFor="names">
           Один ученик на строку
@@ -273,7 +449,15 @@ function escape(text: string) {
   return text.replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]!);
 }
 
-function StudentRow({ student, onChange }: { student: Student; onChange: () => Promise<void> }) {
+function StudentRow({
+  student,
+  groups,
+  onChange,
+}: {
+  student: Student;
+  groups: Group[];
+  onChange: () => Promise<unknown>;
+}) {
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"idle" | "rename" | "reset" | "delete">("idle");
   const [name, setName] = useState(student.name);
@@ -305,6 +489,12 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => P
   const remove = () =>
     run(async () => {
       await api(`/api/admin/students/${student.id}`, { method: "DELETE" });
+      await onChange();
+    });
+
+  const move = (groupId: number | null) =>
+    run(async () => {
+      await api(`/api/admin/students/${student.id}`, { method: "PATCH", body: { groupId } });
       await onChange();
     });
 
@@ -371,7 +561,23 @@ function StudentRow({ student, onChange }: { student: Student; onChange: () => P
           </div>
         )}
         {mode === "idle" && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {(groups.length > 1 || student.groupId === null) && (
+              <select
+                className="input !min-h-9 !w-auto !py-1 text-[15px]"
+                aria-label="Группа ученика"
+                value={student.groupId ?? ""}
+                disabled={busy}
+                onChange={(e) => move(e.target.value ? Number(e.target.value) : null)}
+              >
+                {student.groupId === null && <option value="">Без группы</option>}
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <Link href={`/admin/student?id=${student.id}`} className="btn btn-soft btn-sm">
               Журнал
             </Link>

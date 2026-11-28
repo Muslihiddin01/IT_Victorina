@@ -626,6 +626,16 @@ const MIGRATIONS: [name: string, run: (db: Db) => Promise<void>][] = [
       }
     },
   ],
+  [
+    "2026-11-first-group",
+    // Появились группы: все ученики, которые уже есть, — в первой группе
+    async (db) => {
+      const [group] = await db.query<{ id: number }>(
+        "INSERT INTO student_groups (name) VALUES ('Группа 1') RETURNING id",
+      );
+      await db.query("UPDATE users SET group_id = $1::int WHERE role = 'student' AND group_id IS NULL", [group.id]);
+    },
+  ],
 ];
 
 export async function applyMigrations(db: Db) {

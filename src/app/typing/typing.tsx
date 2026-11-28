@@ -7,8 +7,8 @@ import { TypingTest } from "@/components/typing-test";
 import { ErrorText, FullScreenLoader, Spinner } from "@/components/ui";
 import { api, ApiError } from "@/lib/client";
 import { RU_TEXT, useLang } from "@/lib/i18n";
-import type { Me, RoomState } from "@/lib/types";
-import { makeWords, type TypingResult } from "@/lib/typing";
+import type { Me, RoomState, TypingMe } from "@/lib/types";
+import { makeWords, TYPING_SECONDS, type TypingResult, type TypingSeconds } from "@/lib/typing";
 
 export function Typing() {
   const [me, setMe] = useState<Me | null>(null);
@@ -18,21 +18,143 @@ export function Typing() {
     api<{ user: Me | null }>("/api/me")
       .then(({ user }) => {
         if (!user) return window.location.replace("/login");
-        // Печатание теперь только тест от учителя: без комнаты — на страницу кода
-        const room = new URLSearchParams(window.location.search).get("room");
-        if (!room) return window.location.replace("/join");
-        setRoomId(room);
+        setRoomId(new URLSearchParams(window.location.search).get("room"));
         setMe(user);
       })
       .catch(() => window.location.replace("/login"));
   }, []);
 
-  if (!me || !roomId) return <FullScreenLoader />;
+  if (!me) return <FullScreenLoader />;
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pb-10 pt-4 sm:px-6">
-      <StudentHeader active="join" />
-      <RoomTyping roomId={roomId} />
+      <StudentHeader active={roomId ? "join" : "practice"} />
+      {roomId ? <RoomTyping roomId={roomId} /> : <PracticeTyping />}
     </main>
+  );
+}
+
+// Тренировка: сколько угодно попыток, каждая сохраняется — лучший результат учитель видит в журнале
+function PracticeTyping() {
+  const { t, err } = useLang();
+  const [seconds, setSeconds] = useState<TypingSeconds>(30);
+  const [round, setRound] = useState(0);
+  const [seed, setSeed] = useState<string | null>(null);
+  const [result, setResult] = useState<TypingResult | null>(null);
+  const [saved, setSaved] = useState<{ wpm: number; record: boolean } | null>(null);
+  const [info, setInfo] = useState<TypingMe | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  // Новые случайные слова на каждую попытку (seed уходит на сервер вместе с ответом)
+  const words = useMemo(() => (seed ? makeWords(seed) : null), [seed]);
+
+  useEffect(() => {
+    api<TypingMe>("/api/typing")
+      .then(setInfo)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSeed(`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+    setResult(null);
+    setSaved(null);
+    setError("");
+  }, [round, seconds]);
+
+  async function send(next: TypingResult) {
+    if (!seed) return;
+    setSending(true);
+    setError("");
+    try {
+      const data = await api<TypingMe & { wpm: number; record: boolean }>("/api/typing", {
+        method: "POST",
+        body: { seed, seconds, typed: next.typed, current: next.current },
+      });
+      setSaved({ wpm: data.wpm, record: data.record });
+      setInfo({ best: data.best, goal: data.goal });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : RU_TEXT.error);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const finish = useCallback(
+    (next: TypingResult) => {
+      setResult(next);
+      send(next);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [seed, seconds],
+  );
+
+  const passed = info !== null && info.best !== null && info.best >= info.goal;
+  return (
+    <section className="mt-6">
+      <a href="/practice" className="text-[15px] font-semibold text-cobalt">
+        ← {t.backToTopics}
+      </a>
+      <h1 className="mt-3 font-display text-[28px] font-bold leading-tight">{t.typingTitle}</h1>
+      <p className="mt-2 text-lg leading-relaxed text-muted">{t.typingLead}</p>
+
+      {info && (
+        <div className="mt-4 flex flex-wrap gap-2 text-[15px]">
+          <span className="rounded-full bg-white px-3 py-1.5 shadow-[0_2px_0_var(--color-line)]">
+            🏆 {t.typingRecord}: <b>{info.best ?? "—"}</b>
+          </span>
+          <span
+            className={`rounded-full px-3 py-1.5 font-semibold ${
+              passed ? "bg-green-soft text-green-edge" : "bg-sun-soft text-[#7a4f00]"
+            }`}
+          >
+            {passed ? "✅ " : ""}
+            {t.typingGoal(info.goal)}
+          </span>
+        </div>
+      )}
+
+      <div className="mt-5 flex items-center gap-2">
+        {TYPING_SECONDS.map((value) => (
+          <button
+            key={value}
+            className={`btn btn-sm ${seconds === value ? "btn-primary" : "btn-soft"}`}
+            disabled={sending}
+            onClick={() => {
+              setSeconds(value);
+              setRound(round + 1);
+            }}
+          >
+            {t.typingSeconds(value)}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-6">
+        {result ? (
+          <>
+            <Result wpm={saved?.wpm ?? result.wpm} seconds={seconds} goal={info?.goal ?? null} />
+            {saved?.record && (
+              <p className="mt-3 text-center text-lg font-semibold text-cobalt">🏆 {t.typingNewRecord}</p>
+            )}
+            {sending && <p className="mt-3 text-center text-muted">{t.sending}</p>}
+            {error && (
+              <div className="mt-3">
+                <ErrorText>{err(error)}</ErrorText>
+                <button className="btn btn-primary mt-3 w-full" disabled={sending} onClick={() => send(result)}>
+                  {t.send}
+                </button>
+              </div>
+            )}
+          </>
+        ) : words ? (
+          <TypingTest key={seed} words={words} seconds={seconds} onFinish={finish} />
+        ) : null}
+      </div>
+
+      <button className="btn btn-soft mt-6 w-full" disabled={sending} onClick={() => setRound(round + 1)}>
+        {t.typingRestart}
+      </button>
+    </section>
   );
 }
 

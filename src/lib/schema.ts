@@ -126,6 +126,24 @@ export const SCHEMA = [
    SELECT 30, coalesce((SELECT min(started_at) FROM rooms WHERE kind = 'typing'), now())
     WHERE NOT EXISTS (SELECT 1 FROM typing_goals)`,
 
+  // Печатание в тренировке: каждая попытка ученика (лучшая попадает в общий журнал)
+  `CREATE TABLE IF NOT EXISTS typing_results (
+    id bigserial PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    wpm int NOT NULL,
+    seconds int NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS typing_results_user ON typing_results (user_id, created_at)`,
+
+  // Группы учеников. Удалить можно только пустую группу.
+  `CREATE TABLE IF NOT EXISTS student_groups (
+    id serial PRIMARY KEY,
+    name text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS group_id int REFERENCES student_groups(id) ON DELETE SET NULL`,
+
   // Разовые правки данных (например, обновление первых вопросов). Каждая выполняется один раз.
   `CREATE TABLE IF NOT EXISTS migrations (
     name text PRIMARY KEY,

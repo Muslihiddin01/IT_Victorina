@@ -284,9 +284,9 @@ function RoomScreen({ id }: { id: string }) {
           <p className="font-display text-lg font-bold">Тест завершён в {formatClock(room.finishedAt)}</p>
           {typing ? (
             <p className="mt-1 leading-relaxed text-muted">
-              Результаты печатания — в таблице ниже, самые быстрые сверху. Кто уже набрал норму за этап — в{" "}
-              <Link href="/admin/typing" className="font-semibold text-cobalt">
-                журнале печатания
+              Результаты печатания — в таблице ниже, самые быстрые сверху. Лучший результат каждого ученика — в{" "}
+              <Link href="/admin/journal" className="font-semibold text-cobalt">
+                журнале
               </Link>
               .
             </p>
