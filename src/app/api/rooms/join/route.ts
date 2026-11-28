@@ -10,8 +10,8 @@ export const POST = route(async (req) => {
   if (clean.length !== 4) throw new HttpError(400, "Код комнаты — 4 цифры");
 
   const db = await getDb();
-  const [room] = await db.query<{ id: string; title: string; expired: boolean; joined: boolean }>(
-    `SELECT r.id, r.title,
+  const [room] = await db.query<{ id: string; title: string; kind: string; expired: boolean; joined: boolean }>(
+    `SELECT r.id, r.title, r.kind,
             (r.status = 'running' AND r.ends_at <= now()) AS expired,
             EXISTS (SELECT 1 FROM participants p WHERE p.room_id = r.id AND p.user_id = $2::uuid) AS joined
        FROM rooms r
@@ -29,5 +29,5 @@ export const POST = route(async (req) => {
      ON CONFLICT (room_id, user_id) DO UPDATE SET last_seen_at = now()`,
     [room.id, user.id, user.name, user.login],
   );
-  return json({ roomId: room.id, title: room.title });
+  return json({ roomId: room.id, title: room.title, kind: room.kind });
 });

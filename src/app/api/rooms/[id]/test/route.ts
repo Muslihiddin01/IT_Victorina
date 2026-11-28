@@ -6,6 +6,7 @@ import type { TestPayload, TestQuestion } from "@/lib/types";
 // После этого ученик может выключить интернет: всё нужное уже в браузере.
 export const GET = route(async (req, { id }) => {
   const { db, room, participant } = await loadParticipant(req, id);
+  if (room.kind === "typing") throw new HttpError(409, "Это тест на печатание");
   if (room.status === "waiting") throw new HttpError(409, "Тест ещё не начался");
   if (room.status === "finished") throw new HttpError(409, "Тест уже завершён");
   if (participant.submitted_at) throw new HttpError(409, "Ты уже отправил ответы");

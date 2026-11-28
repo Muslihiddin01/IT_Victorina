@@ -109,6 +109,12 @@ export const SCHEMA = [
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS image text`,
   `ALTER TABLE room_questions ADD COLUMN IF NOT EXISTS image text`,
 
+  // Комната «Печатание на скорость»: вместо вопросов — английские слова на 30 или 60 секунд.
+  // Результат ученика — слов в минуту (wpm).
+  `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'quiz'`,
+  `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS typing_sec int`,
+  `ALTER TABLE participants ADD COLUMN IF NOT EXISTS wpm int`,
+
   // Разовые правки данных (например, обновление первых вопросов). Каждая выполняется один раз.
   `CREATE TABLE IF NOT EXISTS migrations (
     name text PRIMARY KEY,

@@ -15,9 +15,16 @@ export const GET = route(async (req, { id }) => {
       durationMin: room.durationMin,
       questionCount: room.questionCount,
       endsAt: room.endsAt,
+      kind: room.kind,
+      typingSec: room.typingSec,
     },
     joinedCount: room.participants,
-    me: { submitted: Boolean(participant.submitted_at), score: participant.score, total: participant.total },
+    me: {
+      submitted: Boolean(participant.submitted_at),
+      score: participant.score,
+      total: participant.total,
+      wpm: participant.wpm,
+    },
     serverNow: Date.now(),
   };
   return json(state);

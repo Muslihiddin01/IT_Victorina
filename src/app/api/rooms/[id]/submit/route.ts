@@ -1,9 +1,12 @@
 import { HttpError, json, readJson, route } from "@/lib/http";
 import { loadParticipant } from "@/lib/participant";
 import { cleanBehaviour } from "@/lib/rooms";
+import { countWpm, makeWords } from "@/lib/typing";
 import type { Behaviour, SubmitResult } from "@/lib/types";
 
 type Body = {
+  typed?: unknown; // печатание: законченные слова
+  current?: unknown; // печатание: недопечатанное слово
   answers?: Record<string, number>;
   behaviour?: Partial<Behaviour>;
   finishedAgoMs?: number; // сколько миллисекунд назад ученик нажал «Завершить»
@@ -14,12 +17,34 @@ export const POST = route(async (req, { id }) => {
   const { db, room, participant } = await loadParticipant(req, id);
 
   // Уже отправлял (например, интернет моргнул и браузер повторил запрос) — отдаём тот же результат
-  if (participant.submitted_at) {
+  if (participant.submitted_at && room.kind !== "typing") {
     return json({ score: participant.score ?? 0, total: participant.total ?? 0 } satisfies SubmitResult);
   }
   if (room.status === "waiting") throw new HttpError(409, "Тест ещё не начался");
 
   const body = await readJson<Body>(req);
+
+  // Печатание: браузер присылает напечатанные слова, а скорость считаем здесь по словам комнаты
+  if (room.kind === "typing") {
+    if (participant.submitted_at) return json({ wpm: participant.wpm ?? 0 });
+    // Учитель нажал «Завершить», пока ученик допечатывал, — даём минуту дослать результат
+    if (room.status === "finished" && (room.finishedAt ?? 0) < Date.now() - 60_000) {
+      throw new HttpError(409, "Тест уже завершён");
+    }
+    const words = makeWords(room.id);
+    const typed = (Array.isArray(body.typed) ? body.typed : [])
+      .slice(0, words.length)
+      .map((word) => String(word).slice(0, 40));
+    const current = String(body.current ?? "").slice(0, 40);
+    const wpm = Math.min(400, countWpm(words, typed, current, room.typingSec ?? 60));
+    await db.query(
+      `UPDATE participants SET submitted_at = now(), finished_at = now(), loaded_at = coalesce(loaded_at, now()),
+              wpm = $2::int, last_seen_at = now()
+        WHERE id = $1::uuid AND submitted_at IS NULL`,
+      [participant.id, wpm],
+    );
+    return json({ wpm });
+  }
   const questions = await db.query<{ n: number; options: string[]; correct: number }>(
     "SELECT n, options, correct FROM room_questions WHERE room_id = $1::uuid",
     [room.id],

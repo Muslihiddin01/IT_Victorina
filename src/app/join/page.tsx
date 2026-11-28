@@ -17,10 +17,15 @@ import type { Me } from "@/lib/types";
 
 // Войти в комнату и открыть тест
 async function enterRoom(user: Me, code: string) {
-  const room = await api<{ roomId: string; title: string }>("/api/rooms/join", {
+  const room = await api<{ roomId: string; title: string; kind: string }>("/api/rooms/join", {
     method: "POST",
     body: { code },
   });
+  // Печатание на скорость — своя страница, без офлайн-режима теста
+  if (room.kind === "typing") {
+    window.location.assign(`/typing?room=${room.roomId}`);
+    return;
+  }
   setCurrent({ roomId: room.roomId, userId: user.id, name: user.name, title: room.title });
   // Полная загрузка страницы — чтобы браузер сохранил страницу теста для работы без интернета
   window.location.assign("/test");

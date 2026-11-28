@@ -20,6 +20,17 @@ export const PATCH = route(async (req, { id }) => {
   const db = await getDb();
   const room = await getRoom(db, id);
 
+  // Печатание: вопросов нет, время у каждого ученика своё (с первой буквы), поэтому ends_at не нужен.
+  // Комната открыта, пока учитель не нажмёт «Завершить».
+  if (action === "start" && room.kind === "typing") {
+    const rows = await db.query(
+      "UPDATE rooms SET status = 'running', started_at = now() WHERE id = $1::uuid AND status = 'waiting' RETURNING id",
+      [room.id],
+    );
+    if (rows.length === 0) throw new HttpError(409, "Тест уже запущен");
+    return json({ ok: true });
+  }
+
   if (action === "start") {
     await db.tx(async (tx) => {
       // FOR UPDATE — чтобы двойной клик не запустил тест дважды
@@ -55,6 +66,7 @@ export const PATCH = route(async (req, { id }) => {
 
   // Продлить тест для всех. Если время уже вышло, добавляем минуты от текущего момента.
   if (action === "extend") {
+    if (room.kind === "typing") throw new HttpError(400, "У печатания нет общего времени");
     const add = Math.round(Number(minutes));
     if (!(add >= 1 && add <= 60)) throw new HttpError(400, "Продлить можно на 1–60 минут");
     const rows = await db.query(

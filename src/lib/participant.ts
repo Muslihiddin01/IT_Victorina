@@ -14,6 +14,7 @@ export type ParticipantRow = {
   score: number | null;
   total: number | null;
   answers: Record<string, number> | null;
+  wpm: number | null;
 };
 
 // Общая проверка для маршрутов ученика: вошёл ли он и есть ли он в этой комнате
@@ -25,7 +26,7 @@ export async function loadParticipant(
   const db = await getDb();
   const room = await getRoom(db, roomId);
   const [participant] = await db.query<ParticipantRow>(
-    `SELECT id, submitted_at, score, total, answers
+    `SELECT id, submitted_at, score, total, answers, wpm
        FROM participants WHERE room_id = $1::uuid AND user_id = $2::uuid`,
     [room.id, user.id],
   );

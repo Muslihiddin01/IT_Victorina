@@ -58,7 +58,7 @@ function RoomScreen({ id }: { id: string }) {
 
   // Вопросы игры (с правильными ответами) скачиваем один раз, когда тест начался
   const [questions, setQuestions] = useState<RoomQuestion[] | null>(null);
-  const started = data !== null && data.room.status !== "waiting";
+  const started = data !== null && data.room.status !== "waiting" && data.room.kind !== "typing";
   useEffect(() => {
     if (!started || questions) return;
     api<{ questions: RoomQuestion[] }>(`/api/admin/rooms/${id}/questions`)
@@ -71,7 +71,10 @@ function RoomScreen({ id }: { id: string }) {
   async function act(action: "start" | "finish" | "extend", minutes?: number) {
     setBusy(true);
     try {
-      await api(`/api/admin/rooms/${id}`, { method: "PATCH", body: { action, minutes } });
+      await api(`/api/admin/rooms/${id}`, {
+        method: "PATCH",
+        body: { action, minutes },
+      });
       setConfirm(null);
       await load();
     } catch (e) {
@@ -102,10 +105,10 @@ function RoomScreen({ id }: { id: string }) {
   const submitted = participants.filter((p) => p.submittedAt);
   const loaded = participants.filter((p) => p.loadedAt);
   const average = submitted.length
-    ? Math.round(
-        (submitted.reduce((sum, p) => sum + (p.score ?? 0) / (p.total || 1), 0) / submitted.length) * 100,
-      )
+    ? Math.round((submitted.reduce((sum, p) => sum + (p.score ?? 0) / (p.total || 1), 0) / submitted.length) * 100)
     : null;
+  const typing = room.kind === "typing";
+  const speeds = submitted.map((p) => p.wpm ?? 0);
   const host = typeof window !== "undefined" ? window.location.host : "";
   const joinUrl = typeof window !== "undefined" ? `${window.location.origin}/join?code=${room.code}` : "";
 
@@ -116,6 +119,8 @@ function RoomScreen({ id }: { id: string }) {
       const copy = await api<{ id: string }>("/api/admin/rooms", {
         method: "POST",
         body: {
+          kind: room.kind,
+          typingSec: room.typingSec,
           title: room.title,
           durationMin: room.durationMin,
           questionCount: room.questionCount,
@@ -150,7 +155,11 @@ function RoomScreen({ id }: { id: string }) {
             </div>
             {joinUrl && (
               <div className="text-center">
-                <QrCode text={joinUrl} label={`QR-код для входа в комнату ${room.code}`} className="size-44 sm:size-52" />
+                <QrCode
+                  text={joinUrl}
+                  label={`QR-код для входа в комнату ${room.code}`}
+                  className="size-44 sm:size-52"
+                />
                 <p className="mt-2 text-[15px] text-white/80">Наведите камеру телефона</p>
               </div>
             )}
@@ -161,21 +170,65 @@ function RoomScreen({ id }: { id: string }) {
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <button className="btn btn-white text-lg" disabled={busy} onClick={() => act("start")}>
-              {busy ? <Spinner /> : null} Начать тест
+              {busy ? <Spinner /> : null} {typing ? "Начать печатание" : "Начать тест"}
             </button>
             <span className="text-white/85">
-              {room.questionCount} {plural(room.questionCount, ["вопрос", "вопроса", "вопросов"])}, {room.durationMin}{" "}
-              {plural(room.durationMin, ["минута", "минуты", "минут"])}
+              {typing ? (
+                <>Печатание на скорость: {room.typingSec} секунд, английские слова</>
+              ) : (
+                <>
+                  {room.questionCount} {plural(room.questionCount, ["вопрос", "вопроса", "вопросов"])},{" "}
+                  {room.durationMin} {plural(room.durationMin, ["минута", "минуты", "минут"])}
+                </>
+              )}
             </span>
           </div>
         </section>
       )}
 
-      {room.status === "running" && (
+      {room.status === "running" && typing && (
+        <section className="flex flex-wrap items-center gap-x-10 gap-y-5 rounded-[28px] bg-white p-6 shadow-[0_4px_0_var(--color-line)]">
+          <div>
+            <p className="text-muted">Печатают · {room.typingSec} секунд</p>
+            <p className="font-display text-[44px] font-bold tabular-nums leading-tight">
+              {submitted.length}
+              <span className="text-2xl text-muted"> / {participants.length} закончили</span>
+            </p>
+          </div>
+          <div>
+            <p className="text-muted">Код для опоздавших</p>
+            <Keycaps value={room.code} className="mt-1 text-[22px]" />
+          </div>
+          <div className="ml-auto flex flex-wrap gap-3">
+            {confirm === "finish" ? (
+              <>
+                <span className="self-center font-semibold">Завершить для всех?</span>
+                <button className="btn btn-soft" onClick={() => setConfirm(null)}>
+                  Отмена
+                </button>
+                <button className="btn btn-primary" disabled={busy} onClick={() => act("finish")}>
+                  Завершить
+                </button>
+              </>
+            ) : (
+              <button className="btn btn-primary" onClick={() => setConfirm("finish")}>
+                Завершить
+              </button>
+            )}
+          </div>
+          <p className="w-full text-sm text-muted">
+            У каждого ученика таймер запускается с его первой буквы. Когда все закончат, нажмите «Завершить».
+          </p>
+        </section>
+      )}
+
+      {room.status === "running" && !typing && (
         <section className="flex flex-wrap items-center gap-x-10 gap-y-5 rounded-[28px] bg-white p-6 shadow-[0_4px_0_var(--color-line)]">
           <div>
             <p className="text-muted">Осталось</p>
-            <p className={`font-display text-[44px] font-bold tabular-nums leading-tight ${remaining < 60_000 ? "text-red" : "text-ink"}`}>
+            <p
+              className={`font-display text-[44px] font-bold tabular-nums leading-tight ${remaining < 60_000 ? "text-red" : "text-ink"}`}
+            >
               {remaining > 0 ? formatTimer(remaining) : "0:00"}
             </p>
           </div>
@@ -219,8 +272,8 @@ function RoomScreen({ id }: { id: string }) {
             </p>
           )}
           <p className="w-full text-sm text-muted">
-            Продление сразу видят ученики с интернетом. Ученики без интернета узнают о нём, когда включат интернет:
-            если у них время уже вышло, тест откроется снова, ответы сохранятся.
+            Продление сразу видят ученики с интернетом. Ученики без интернета узнают о нём, когда включат интернет: если
+            у них время уже вышло, тест откроется снова, ответы сохранятся.
           </p>
         </section>
       )}
@@ -228,19 +281,37 @@ function RoomScreen({ id }: { id: string }) {
       {room.status === "finished" && (
         <section className="rounded-[28px] bg-white p-6 shadow-[0_4px_0_var(--color-line)]">
           <p className="font-display text-lg font-bold">Тест завершён в {formatClock(room.finishedAt)}</p>
-          <p className="mt-1 leading-relaxed text-muted">
-            Ученики уже видят разбор ошибок. Кто решал без интернета, ещё может отправить ответы: они появятся в
-            таблице с отметкой «позже времени», если ученик закончил решать после завершения.
-          </p>
+          {typing ? (
+            <p className="mt-1 leading-relaxed text-muted">
+              Результаты печатания — в таблице ниже, самые быстрые сверху.
+            </p>
+          ) : (
+            <p className="mt-1 leading-relaxed text-muted">
+              Ученики уже видят разбор ошибок. Кто решал без интернета, ещё может отправить ответы: они появятся в
+              таблице с отметкой «позже времени», если ученик закончил решать после завершения.
+            </p>
+          )}
         </section>
       )}
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="В комнате" value={participants.length} />
-        <Stat label="Скачали тест" value={loaded.length} />
-        <Stat label="Сдали" value={submitted.length} />
-        <Stat label="Средний результат" value={average === null ? "—" : `${average}%`} />
-      </section>
+      {typing ? (
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="В комнате" value={participants.length} />
+          <Stat label="Закончили" value={submitted.length} />
+          <Stat
+            label="Средняя скорость"
+            value={speeds.length ? `${Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length)} сл/мин` : "—"}
+          />
+          <Stat label="Лучшая" value={speeds.length ? `${Math.max(...speeds)} сл/мин` : "—"} />
+        </section>
+      ) : (
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="В комнате" value={participants.length} />
+          <Stat label="Скачали тест" value={loaded.length} />
+          <Stat label="Сдали" value={submitted.length} />
+          <Stat label="Средний результат" value={average === null ? "—" : `${average}%`} />
+        </section>
+      )}
 
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -251,7 +322,13 @@ function RoomScreen({ id }: { id: string }) {
                 <PlusIcon className="size-4" /> Такая же комната
               </button>
             )}
-            <ExportButton roomId={room.id} gradesState={gradesState} />
+            {typing ? (
+              <a className="btn btn-soft btn-sm" href={`/api/admin/rooms/${room.id}/export`} download>
+                <DownloadIcon className="size-4" /> Скачать результаты (Excel)
+              </a>
+            ) : (
+              <ExportButton roomId={room.id} gradesState={gradesState} />
+            )}
             {confirm === "delete" ? (
               <>
                 <button className="btn btn-soft btn-sm" onClick={() => setConfirm(null)}>
@@ -280,7 +357,7 @@ function RoomScreen({ id }: { id: string }) {
                 <tr>
                   <th className="px-4 py-3 font-semibold">Ученик</th>
                   <th className="px-4 py-3 font-semibold">Статус</th>
-                  <th className="px-4 py-3 font-semibold">Оценка и баллы</th>
+                  <th className="px-4 py-3 font-semibold">{typing ? "Слов в минуту" : "Оценка и баллы"}</th>
                   <th className="px-4 py-3 font-semibold">Нарушения</th>
                 </tr>
               </thead>
@@ -295,6 +372,7 @@ function RoomScreen({ id }: { id: string }) {
                     questions={questions}
                     open={openId === p.id}
                     grade={p.score !== null && p.total ? gradeOf(p.score / p.total, gradesState.grades) : null}
+                    typing={typing}
                     onToggle={() => setOpenId(openId === p.id ? null : p.id)}
                   />
                 ))}
@@ -329,8 +407,9 @@ function QuestionStats({ questions, submitted }: { questions: RoomQuestion[]; su
     <section>
       <h2 className="font-display text-lg font-bold">Вопросы</h2>
       <p className="mt-1 text-[15px] text-muted">
-        Сколько учеников ответили правильно (из {submitted.length} {plural(submitted.length, ["сдавшего", "сдавших", "сдавших"])}).
-        Сверху — самые трудные: их стоит разобрать с классом. Нажмите на вопрос, чтобы увидеть, что выбирали.
+        Сколько учеников ответили правильно (из {submitted.length}{" "}
+        {plural(submitted.length, ["сдавшего", "сдавших", "сдавших"])}). Сверху — самые трудные: их стоит разобрать с
+        классом. Нажмите на вопрос, чтобы увидеть, что выбирали.
       </p>
       <ol className="mt-4 space-y-2">
         {stats.map(({ question, picks, none, right, part }) => {
@@ -383,7 +462,9 @@ function QuestionStats({ questions, submitted }: { questions: RoomQuestion[]; su
                     </li>
                   )}
                   {question.explanation && (
-                    <li className="px-2.5 pt-1.5 text-sm leading-relaxed text-muted">Пояснение: {question.explanation}</li>
+                    <li className="px-2.5 pt-1.5 text-sm leading-relaxed text-muted">
+                      Пояснение: {question.explanation}
+                    </li>
                   )}
                 </ul>
               </details>
@@ -442,6 +523,7 @@ function Row({
   open,
   onToggle,
   grade,
+  typing,
 }: {
   p: Participant;
   roomStatus: RoomDetail["room"]["status"];
@@ -451,6 +533,7 @@ function Row({
   open: boolean;
   onToggle: () => void;
   grade: number | null;
+  typing: boolean;
 }) {
   const canOpen = Boolean(p.submittedAt && questions);
   const fresh = p.lastEventAt !== null && serverNow - p.lastEventAt < 15_000 && !p.submittedAt;
@@ -465,6 +548,16 @@ function Row({
         {late && <span className="font-normal text-red-edge">, позже времени</span>}
       </span>
     );
+  } else if (typing && roomStatus !== "waiting") {
+    status =
+      roomStatus === "finished" ? (
+        <span className="text-muted">Не сдал</span>
+      ) : (
+        <span className="inline-flex items-center gap-2 font-semibold text-cobalt">
+          <span className={`size-2 rounded-full ${connected ? "bg-green" : "bg-line"}`} />
+          {connected ? "Печатает" : "Отошёл"}
+        </span>
+      );
   } else if (p.loadedAt) {
     status =
       roomStatus === "finished" ? (
@@ -515,7 +608,15 @@ function Row({
         </td>
         <td className="px-4 py-3">{status}</td>
         <td className="px-4 py-3">
-          {p.score !== null && p.total ? (
+          {typing ? (
+            p.wpm !== null ? (
+              <span>
+                <b className="font-display text-xl">{p.wpm}</b> <span className="text-muted">слов/мин</span>
+              </span>
+            ) : (
+              <span className="text-muted">—</span>
+            )
+          ) : p.score !== null && p.total ? (
             <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
               {grade !== null && <GradeBadge grade={grade} />}
               <span>
@@ -535,7 +636,11 @@ function Row({
           )}
         </td>
         <td className="px-4 py-3">
-          {flags.length ? <div className="flex flex-wrap gap-1.5">{flags}</div> : <span className="text-muted">Нет</span>}
+          {flags.length ? (
+            <div className="flex flex-wrap gap-1.5">{flags}</div>
+          ) : (
+            <span className="text-muted">Нет</span>
+          )}
         </td>
       </tr>
       {open && canOpen && (

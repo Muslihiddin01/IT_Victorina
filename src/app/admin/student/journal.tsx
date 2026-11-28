@@ -170,7 +170,15 @@ function TestRow({ test, grades }: { test: JournalTest; grades: Grades }) {
         <span className="block text-sm text-muted">Комната {test.code}</span>
       </td>
       <td className="px-4 py-3">
-        {done ? (
+        {test.kind === "typing" ? (
+          test.wpm !== null ? (
+            <span>
+              <b className="font-display text-lg">{test.wpm}</b> <span className="text-muted">слов/мин (печатание)</span>
+            </span>
+          ) : (
+            <span className="text-muted">{test.running ? "Печатание ещё идёт" : "Не сдал"}</span>
+          )
+        ) : done ? (
           <span className="inline-flex items-center gap-3">
             <GradeBadge grade={gradeOf(test.score! / test.total!, grades)} />
             <span>

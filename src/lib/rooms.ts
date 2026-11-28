@@ -90,6 +90,8 @@ type RoomRow = {
   duration_min: number;
   question_count: number;
   topic_ids: number[];
+  kind: Room["kind"];
+  typing_sec: number | null;
   created_at: Date;
   started_at: Date | null;
   ends_at: Date | null;
@@ -98,7 +100,7 @@ type RoomRow = {
   submitted?: number;
 };
 
-export const ROOM_COLUMNS = `r.id, r.code, r.title, r.status, r.duration_min, r.question_count, r.topic_ids,
+export const ROOM_COLUMNS = `r.id, r.code, r.title, r.status, r.duration_min, r.question_count, r.topic_ids, r.kind, r.typing_sec,
   r.created_at, r.started_at, r.ends_at, r.finished_at,
   (SELECT count(*)::int FROM participants p WHERE p.room_id = r.id) AS participants,
   (SELECT count(*)::int FROM participants p WHERE p.room_id = r.id AND p.submitted_at IS NOT NULL) AS submitted`;
@@ -112,6 +114,8 @@ export function mapRoom(row: RoomRow): Room {
     durationMin: row.duration_min,
     questionCount: row.question_count,
     topicIds: row.topic_ids ?? [],
+    kind: row.kind ?? "quiz",
+    typingSec: row.typing_sec,
     createdAt: ms(row.created_at)!,
     startedAt: ms(row.started_at),
     endsAt: ms(row.ends_at),
@@ -146,14 +150,15 @@ type ParticipantRow = {
   online_mode: boolean;
   last_event_at: Date | null;
   answers: Record<string, number> | null;
+  wpm: number | null;
 };
 
 export async function getParticipants(db: Db, roomId: string): Promise<Participant[]> {
   const rows = await db.query<ParticipantRow>(
     `SELECT id, name, login, joined_at, last_seen_at, loaded_at, submitted_at, finished_at,
-            answered, score, total, leaves, away_ms, online_count, online_mode, last_event_at, answers
+            answered, score, total, leaves, away_ms, online_count, online_mode, last_event_at, answers, wpm
        FROM participants WHERE room_id = $1::uuid
-      ORDER BY score DESC NULLS LAST, name`,
+      ORDER BY wpm DESC NULLS LAST, score DESC NULLS LAST, name`,
     [roomId],
   );
   return rows.map((row) => ({
@@ -174,6 +179,7 @@ export async function getParticipants(db: Db, roomId: string): Promise<Participa
     onlineMode: row.online_mode,
     lastEventAt: ms(row.last_event_at),
     answers: row.answers,
+    wpm: row.wpm,
   }));
 }
 

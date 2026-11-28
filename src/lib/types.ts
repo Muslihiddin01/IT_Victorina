@@ -44,6 +44,8 @@ export type Student = {
 // Журнал успеваемости: все тесты одного ученика (старые — первыми)
 export type JournalTest = {
   roomId: string;
+  kind: RoomKind;
+  wpm: number | null;
   title: string;
   code: string;
   running: boolean; // тест ещё идёт
@@ -61,6 +63,9 @@ export type StudentJournal = {
   tests: JournalTest[];
 };
 
+// quiz — обычный тест с вопросами, typing — печатание на скорость
+export type RoomKind = "quiz" | "typing";
+
 export type RoomStatus = "waiting" | "running" | "finished";
 
 export type Room = {
@@ -71,6 +76,8 @@ export type Room = {
   durationMin: number;
   questionCount: number;
   topicIds: number[];
+  kind: RoomKind;
+  typingSec: number | null; // для печатания: 30 или 60 секунд
   createdAt: number;
   startedAt: number | null;
   endsAt: number | null;
@@ -108,6 +115,7 @@ export type Participant = Behaviour & {
   total: number | null;
   lastEventAt: number | null; // последнее «живое» нарушение
   answers: Record<string, number> | null; // номер вопроса → выбранный вариант (после сдачи)
+  wpm: number | null; // печатание: слов в минуту
 };
 
 // Вопрос комнаты для учителя — вместе с правильным ответом
@@ -151,9 +159,11 @@ export type RoomState = {
     durationMin: number;
     questionCount: number;
     endsAt: number | null;
+    kind: RoomKind;
+    typingSec: number | null;
   };
   joinedCount: number;
-  me: { submitted: boolean; score: number | null; total: number | null };
+  me: { submitted: boolean; score: number | null; total: number | null; wpm: number | null };
   serverNow: number;
 };
 

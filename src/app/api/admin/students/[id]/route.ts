@@ -32,9 +32,11 @@ export const GET = route(async (req, { id }) => {
     leaves: number;
     online_count: number;
     online_mode: boolean;
+    kind: "quiz" | "typing";
+    wpm: number | null;
   }>(
     `SELECT r.id AS room_id, r.title, r.code, r.status, r.started_at, r.created_at,
-            p.submitted_at, p.score, p.total, p.leaves, p.online_count, p.online_mode
+            p.submitted_at, p.score, p.total, p.leaves, p.online_count, p.online_mode, r.kind, p.wpm
        FROM participants p JOIN rooms r ON r.id = p.room_id
       WHERE p.user_id = $1::uuid AND r.status <> 'waiting'
       ORDER BY coalesce(r.started_at, r.created_at)`,
@@ -44,6 +46,8 @@ export const GET = route(async (req, { id }) => {
     student,
     tests: rows.map((row) => ({
       roomId: row.room_id,
+      kind: row.kind ?? "quiz",
+      wpm: row.wpm,
       title: row.title,
       code: row.code,
       running: row.status === "running",
