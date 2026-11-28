@@ -268,22 +268,22 @@ body {
 .typing-extra {
   opacity: 0.7;
 }
+/* Курсор один на весь текст: переезжает плавно, пока печатаешь — горит ровно, замер — мигает */
 .typing-caret {
   position: absolute;
-  left: -1px;
-  top: 0.1em;
-  bottom: 0.1em;
+  left: 0;
+  top: 0;
   width: 2px;
+  height: 1.25em;
+  margin-top: calc((var(--typing-line) - 1.25em) / 2);
   border-radius: 1px;
   background: var(--color-cobalt);
-  animation: typing-blink 1s step-end infinite;
+  pointer-events: none;
+  transition: transform 90ms ease-out;
+  will-change: transform;
 }
-.typing-caret-end {
-  left: auto;
-  right: -3px;
-  top: calc(50% - 0.6em);
-  bottom: auto;
-  height: 1.2em;
+.typing-caret-idle {
+  animation: typing-blink 1s step-end infinite;
 }
 @keyframes typing-blink {
   50% {
